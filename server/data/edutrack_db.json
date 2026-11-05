@@ -2988,6 +2988,24 @@
   ],
   "auditLogs": [
     {
+      "id": "audit_1793902495408_1ajo",
+      "action": "User Login",
+      "performedBy": "Elena Rostova",
+      "role": "student",
+      "targetEntity": "Session",
+      "details": "Authenticated as student@edutrack.edu (student)",
+      "timestamp": "2026-11-05 18:14:55"
+    },
+    {
+      "id": "audit_1793902495297_apyu",
+      "action": "User Login",
+      "performedBy": "Prof. Marcus Vance",
+      "role": "faculty",
+      "targetEntity": "Session",
+      "details": "Authenticated as faculty@edutrack.edu (faculty)",
+      "timestamp": "2026-11-05 18:14:55"
+    },
+    {
       "id": "audit_1793898030171_8f08",
       "action": "User Login",
       "performedBy": "maruthi",
@@ -4768,24 +4786,6 @@
       "targetEntity": "Subject ECE102",
       "details": "Added curriculum: SIGNALS (Theory + Lab, Sem 6)",
       "timestamp": "2026-11-05 03:39:20"
-    },
-    {
-      "id": "audit_1793849938034_xuod",
-      "action": "Subject Created",
-      "performedBy": "Dr. Aris Thorne",
-      "role": "admin",
-      "targetEntity": "Subject ECE101",
-      "details": "Added curriculum: ADC (Theory + Lab, Sem 6)",
-      "timestamp": "2026-11-05 03:38:58"
-    },
-    {
-      "id": "audit_1793849903018_shn8",
-      "action": "Section Updated",
-      "performedBy": "Dr. Aris Thorne",
-      "role": "admin",
-      "targetEntity": "Section CSE-A",
-      "details": "Updated capacity to 4, status: active",
-      "timestamp": "2026-11-05 03:38:23"
     }
   ],
   "onlineExams": [

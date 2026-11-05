@@ -56,6 +56,7 @@ import {
   INITIAL_ONLINE_EXAMS,
   INITIAL_EXAM_ATTEMPTS
 } from './mockData';
+import { firebaseSignOut } from '../config/firebase';
 
 const TOKEN_KEY = 'edutrack_jwt_token';
 const STORAGE_PREFIX = 'edutrack_fullstack_v1_';
@@ -353,6 +354,49 @@ export class EduTrackApi {
     return { success: false, error: 'Invalid credentials or unprovisioned account. Contact your university administrator.' };
   }
 
+  static async loginAdminWithGoogle(idToken: string): Promise<{ success: boolean; user?: User; error?: string }> {
+    try {
+      const res = await fetch('/api/auth/admin/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        return {
+          success: false,
+          error: data.error || 'This Google account is not registered as an authorized Admin. Please contact the system administrator.'
+        };
+      }
+
+      if (data && data.token && data.user) {
+        localStorage.setItem(TOKEN_KEY, data.token);
+        localStorage.setItem(KEYS.CURRENT_USER_ID, data.user.id);
+
+        const users = this.getUsers();
+        const existingIdx = users.findIndex(u => u.id === data.user.id || u.email.toLowerCase() === data.user.email.toLowerCase());
+        if (existingIdx !== -1) {
+          users[existingIdx] = data.user;
+        } else {
+          users.push(data.user);
+        }
+        saveStorage(KEYS.USERS, users);
+
+        this.logAudit('Admin Google Login', data.user.name, 'admin', 'Session', `Authenticated as ${data.user.email} (admin) via Firebase Google Sign-In`);
+        return { success: true, user: data.user };
+      }
+
+      return { success: false, error: 'Malformed response received from server.' };
+    } catch (err: any) {
+      console.error('[EduTrack API] Google login request error:', err);
+      return {
+        success: false,
+        error: 'Network failure during Administrator verification. Please check backend server status.'
+      };
+    }
+  }
+
   static login(identifier: string, password?: string, expectedRole?: UserRole): User | null {
     const users = this.getUsers();
     const cleanId = identifier.trim().toLowerCase();
@@ -397,6 +441,9 @@ export class EduTrackApi {
     apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => {});
     localStorage.removeItem(KEYS.CURRENT_USER_ID);
     localStorage.removeItem(TOKEN_KEY);
+    try {
+      firebaseSignOut().catch(() => {});
+    } catch {}
   }
 
   static addUser(user: Omit<User, 'id' | 'createdAt'>): User {

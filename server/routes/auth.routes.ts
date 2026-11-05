@@ -2,6 +2,9 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { dbStore } from '../store/storage';
 import { generateToken } from '../middleware/auth';
+import { verifyFirebaseIdToken } from '../firebaseAdmin';
+import { isDbConnected } from '../db/connection';
+import { UserModel } from '../models/index';
 
 const router = Router();
 
@@ -46,6 +49,13 @@ router.post('/login', (req: Request, res: Response) => {
     const roleLabels: Record<string, string> = { admin: 'Admin', faculty: 'Faculty', student: 'Student' };
     return res.status(403).json({ 
       error: `This account is registered for ${roleLabels[user.role] || user.role} access. Please switch to the ${roleLabels[user.role] || user.role} Login tab.` 
+    });
+  }
+
+  // Admin accounts MUST authenticate using Firebase Google Sign-In
+  if (user.role === 'admin' || role === 'admin') {
+    return res.status(403).json({
+      error: 'Administrator accounts must sign in using Firebase Google Authentication. Please use the Google Sign-In button.'
     });
   }
 
@@ -153,6 +163,132 @@ router.post('/login', (req: Request, res: Response) => {
     user: userSafe,
     profile
   });
+});
+
+// POST /api/auth/admin/google
+// Firebase Google Authentication exclusively for Administrator role
+router.post('/admin/google', async (req: Request, res: Response) => {
+  const { idToken } = req.body;
+
+  if (!idToken || typeof idToken !== 'string') {
+    return res.status(400).json({ error: 'Firebase ID token is required for Administrator authentication.' });
+  }
+
+  try {
+    // 1. Verify token cryptographically using Firebase Admin SDK
+    const verifiedUser = await verifyFirebaseIdToken(idToken);
+    const verifiedEmail = verifiedUser.email.toLowerCase().trim();
+
+    // 2. Query MongoDB database for user record with this email
+    const data = dbStore.getData();
+    let user = data.users.find(u => u.email.toLowerCase() === verifiedEmail);
+
+    // If MongoDB is connected, query MongoDB collection directly
+    if (!user && isDbConnected()) {
+      try {
+        const mongoUser = await UserModel.findOne({ email: verifiedEmail }).lean();
+        if (mongoUser) {
+          user = {
+            id: mongoUser.id || (mongoUser as any)._id?.toString(),
+            name: mongoUser.name,
+            email: mongoUser.email,
+            passwordHash: mongoUser.passwordHash,
+            role: mongoUser.role,
+            status: mongoUser.status,
+            createdAt: mongoUser.createdAt
+          };
+        }
+      } catch (err: any) {
+        console.warn('[Admin Google Auth] MongoDB query warning:', err.message);
+      }
+    }
+
+    // 3. Reject if user does not exist in database
+    if (!user) {
+      dbStore.logAudit(
+        'Admin Access Denied',
+        verifiedEmail,
+        'guest',
+        'Security',
+        `Unregistered Google account (${verifiedEmail}) attempted Admin portal login.`
+      );
+      return res.status(403).json({
+        error: 'This Google account is not registered as an authorized Admin. Please contact the system administrator.'
+      });
+    }
+
+    // 4. Reject if user is not an Admin (e.g. Faculty or Student)
+    if (user.role.toLowerCase() !== 'admin') {
+      dbStore.logAudit(
+        'Admin Access Denied',
+        user.name,
+        user.role,
+        'Security',
+        `User ${user.email} with role '${user.role}' attempted Admin Google login.`
+      );
+      return res.status(403).json({
+        error: 'This Google account is not registered as an authorized Admin. Please contact the system administrator.'
+      });
+    }
+
+    // 5. Reject if Admin account is inactive
+    if (user.status !== 'active') {
+      dbStore.logAudit(
+        'Admin Access Denied',
+        user.name,
+        'admin',
+        'Security',
+        `Deactivated Admin account (${user.email}) attempted login.`
+      );
+      return res.status(403).json({
+        error: 'This Admin account has been deactivated. Please contact the system administrator.'
+      });
+    }
+
+    // 6. Generate existing application JWT
+    const token = generateToken({
+      id: user.id,
+      email: user.email,
+      role: 'admin',
+      name: user.name
+    });
+
+    // 7. Establish cookie session
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    // 8. Log successful session audit trail
+    dbStore.logAudit(
+      'Admin Google Login',
+      user.name,
+      'admin',
+      'Session',
+      `Authenticated via Firebase Google Sign-In (${verifiedEmail})`
+    );
+
+    // 9. Return authorized admin profile and token
+    return res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        avatar: user.avatar || verifiedUser.picture
+      }
+    });
+  } catch (err: any) {
+    console.error('[Admin Google Auth] Verification error:', err.message);
+    return res.status(401).json({
+      error: err.message || 'Firebase Google authentication failed. Please verify token.'
+    });
+  }
 });
 
 // POST /api/auth/logout
