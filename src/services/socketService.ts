@@ -24,8 +24,9 @@ class SocketService {
     }
 
     const token = localStorage.getItem('edutrack_token');
+    const socketBaseUrl = (import.meta.env.VITE_API_URL || window.location.origin).replace(/\/+$/, '');
 
-    this.socket = io(window.location.origin, {
+    this.socket = io(socketBaseUrl, {
       auth: { token },
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,

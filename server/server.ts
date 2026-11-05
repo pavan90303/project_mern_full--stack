@@ -42,13 +42,40 @@ export async function createBackendApp() {
   // Initialize real-time Socket.IO communication
   initSocket(server);
 
-  // Middleware configuration
-  app.use(
-    cors({
-      origin: true,
-      credentials: true
-    })
-  );
+  // Middleware configuration - Enable CORS for Vercel, localhost, and configured domains
+  const corsOptions: cors.CorsOptions = {
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, server-to-server, curl)
+      if (!origin) return callback(null, true);
+
+      // Allow localhost in development
+      if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        return callback(null, true);
+      }
+
+      // Allow any Vercel domain (*.vercel.app)
+      if (origin.endsWith('.vercel.app') || origin === 'https://vercel.app') {
+        return callback(null, true);
+      }
+
+      // Allow explicit environment frontend origins
+      if (
+        (process.env.CLIENT_URL && origin === process.env.CLIENT_URL) ||
+        (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL)
+      ) {
+        return callback(null, true);
+      }
+
+      // Fallback: allow origin with credentials
+      return callback(null, true);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+  };
+
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
   app.use(cookieParser());

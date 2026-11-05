@@ -19,7 +19,7 @@ export interface ClientRegistrationData {
 export function initSocket(httpServer: HTTPServer): SocketIOServer {
   io = new SocketIOServer(httpServer, {
     cors: {
-      origin: '*',
+      origin: (origin, callback) => callback(null, true),
       methods: ['GET', 'POST'],
       credentials: true
     },

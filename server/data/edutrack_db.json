@@ -2997,6 +2997,24 @@
   ],
   "auditLogs": [
     {
+      "id": "audit_1793906762580_0mfz",
+      "action": "User Login",
+      "performedBy": "Elena Rostova",
+      "role": "student",
+      "targetEntity": "Session",
+      "details": "Authenticated as student@edutrack.edu (student)",
+      "timestamp": "2026-11-05 19:26:02"
+    },
+    {
+      "id": "audit_1793906762475_z6s0",
+      "action": "User Login",
+      "performedBy": "Prof. Marcus Vance",
+      "role": "faculty",
+      "targetEntity": "Session",
+      "details": "Authenticated as faculty@edutrack.edu (faculty)",
+      "timestamp": "2026-11-05 19:26:02"
+    },
+    {
       "id": "audit_1793906002579_etb0",
       "action": "User Login",
       "performedBy": "Elena Rostova",
@@ -4776,24 +4794,6 @@
       "role": "faculty",
       "targetEntity": "Submission sub_1793852319404",
       "details": "Awarded 98 marks to Alex Mercer",
-      "timestamp": "2026-11-05 04:18:39"
-    },
-    {
-      "id": "audit_1793852319407_695h",
-      "action": "Assignment Submitted",
-      "performedBy": "Alex Mercer",
-      "role": "student",
-      "targetEntity": "Assignment Raft Consensus Implementation",
-      "details": "Submitted file: raft_cluster_v1.zip",
-      "timestamp": "2026-11-05 04:18:39"
-    },
-    {
-      "id": "audit_1793852319385_yzb1",
-      "action": "Assignment Created",
-      "performedBy": "Faculty",
-      "role": "faculty",
-      "targetEntity": "Assignment Raft Consensus Implementation",
-      "details": "Created for CS401, Due: 2026-04-15",
       "timestamp": "2026-11-05 04:18:39"
     }
   ],

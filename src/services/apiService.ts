@@ -143,7 +143,19 @@ export function isMatchingSection(stdSection?: string, targetSection?: string, s
   return false;
 }
 
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+
+export function buildApiUrl(endpoint: string): string {
+  if (!API_BASE_URL) return endpoint;
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+    return endpoint;
+  }
+  const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${API_BASE_URL}${cleanPath}`;
+}
+
 async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T | null> {
+  const fullUrl = buildApiUrl(url);
   const token = localStorage.getItem(TOKEN_KEY);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -155,7 +167,7 @@ async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T 
   }
 
   try {
-    const res = await fetch(url, {
+    const res = await fetch(fullUrl, {
       ...options,
       headers,
       credentials: 'include'
@@ -300,7 +312,7 @@ export class EduTrackApi {
   static async loginAsync(identifier: string, password?: string, expectedRole?: UserRole): Promise<{ success: boolean; user?: User; error?: string }> {
     const cleanId = identifier.trim().toLowerCase();
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(buildApiUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanId, password: password || '', role: expectedRole })
@@ -356,7 +368,7 @@ export class EduTrackApi {
 
   static async loginAdminWithGoogle(idToken: string): Promise<{ success: boolean; user?: User; error?: string }> {
     try {
-      const res = await fetch('/api/auth/admin/google', {
+      const res = await fetch(buildApiUrl('/api/auth/admin/google'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken })
