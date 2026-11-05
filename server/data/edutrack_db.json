@@ -2997,6 +2997,24 @@
   ],
   "auditLogs": [
     {
+      "id": "audit_1793906002579_etb0",
+      "action": "User Login",
+      "performedBy": "Elena Rostova",
+      "role": "student",
+      "targetEntity": "Session",
+      "details": "Authenticated as student@edutrack.edu (student)",
+      "timestamp": "2026-11-05 19:13:22"
+    },
+    {
+      "id": "audit_1793906002470_auj4",
+      "action": "User Login",
+      "performedBy": "Prof. Marcus Vance",
+      "role": "faculty",
+      "targetEntity": "Session",
+      "details": "Authenticated as faculty@edutrack.edu (faculty)",
+      "timestamp": "2026-11-05 19:13:22"
+    },
+    {
       "id": "audit_1793905253951_z0t1",
       "action": "User Login",
       "performedBy": "Elena Rostova",
@@ -4776,24 +4794,6 @@
       "role": "faculty",
       "targetEntity": "Assignment Raft Consensus Implementation",
       "details": "Created for CS401, Due: 2026-04-15",
-      "timestamp": "2026-11-05 04:18:39"
-    },
-    {
-      "id": "audit_1793852319368_jl3h",
-      "action": "Attendance Recorded",
-      "performedBy": "Faculty",
-      "role": "faculty",
-      "targetEntity": "Subject CS401",
-      "details": "Recorded period attendance for 1 students on 2026-03-27 (A)",
-      "timestamp": "2026-11-05 04:18:39"
-    },
-    {
-      "id": "audit_1793852319340_asos",
-      "action": "Marks Submitted",
-      "performedBy": "Faculty",
-      "role": "faculty",
-      "targetEntity": "Assessment cia_1793852319303",
-      "details": "Recorded marks for 1 students",
       "timestamp": "2026-11-05 04:18:39"
     }
   ],
