@@ -203,6 +203,31 @@ router.post('/admin/google', async (req: Request, res: Response) => {
       }
     }
 
+    // Support optional configured administrator emails from environment variable
+    const configuredAdmins = (process.env.ADMIN_GOOGLE_EMAILS || '')
+      .split(',')
+      .map(e => e.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (configuredAdmins.includes(verifiedEmail)) {
+      if (!user) {
+        user = {
+          id: `usr_admin_${Date.now()}`,
+          name: verifiedUser.name || 'Administrator',
+          email: verifiedEmail,
+          passwordHash: '',
+          role: 'admin',
+          status: 'active',
+          createdAt: new Date()
+        };
+        data.users.push(user);
+        dbStore.save();
+      } else if (user.role !== 'admin') {
+        user.role = 'admin';
+        dbStore.save();
+      }
+    }
+
     // 3. Reject if user does not exist in database
     if (!user) {
       dbStore.logAudit(
