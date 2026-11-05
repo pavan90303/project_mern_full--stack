@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import {
   UserModel,
@@ -25,7 +26,13 @@ import {
 } from '../models/index';
 import { isDbConnected } from '../db/connection';
 
-const DATA_DIR = path.resolve(process.cwd(), 'server/data');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DATA_DIR = fs.existsSync(path.resolve(process.cwd(), 'server/data'))
+  ? path.resolve(process.cwd(), 'server/data')
+  : (fs.existsSync(path.resolve(process.cwd(), 'data'))
+    ? path.resolve(process.cwd(), 'data')
+    : path.resolve(__dirname, '../data'));
 const DB_FILE = path.join(DATA_DIR, 'edutrack_db.json');
 
 // Ensure directory exists

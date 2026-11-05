@@ -177,6 +177,15 @@
       "createdAt": "2026-01-10",
       "status": "active",
       "passwordHash": "$2b$10$eZK0juQQmHDn.w9YnbGdU.fXjiMVGPQcs7DfaIpyD4g7l.CPHhSOu"
+    },
+    {
+      "id": "usr_admin_1793903093175",
+      "name": "Pavankumar",
+      "email": "pavan90303@gmail.com",
+      "passwordHash": "",
+      "role": "admin",
+      "status": "active",
+      "createdAt": "2026-11-05T18:24:53.175Z"
     }
   ],
   "departments": [
@@ -2988,6 +2997,42 @@
   ],
   "auditLogs": [
     {
+      "id": "audit_1793905253951_z0t1",
+      "action": "User Login",
+      "performedBy": "Elena Rostova",
+      "role": "student",
+      "targetEntity": "Session",
+      "details": "Authenticated as student@edutrack.edu (student)",
+      "timestamp": "2026-11-05 19:00:53"
+    },
+    {
+      "id": "audit_1793905253845_guvf",
+      "action": "User Login",
+      "performedBy": "Prof. Marcus Vance",
+      "role": "faculty",
+      "targetEntity": "Session",
+      "details": "Authenticated as faculty@edutrack.edu (faculty)",
+      "timestamp": "2026-11-05 19:00:53"
+    },
+    {
+      "id": "audit_1793903093181_tcbh",
+      "action": "Admin Google Login",
+      "performedBy": "Pavankumar",
+      "role": "admin",
+      "targetEntity": "Session",
+      "details": "Authenticated via Firebase Google Sign-In (pavan90303@gmail.com)",
+      "timestamp": "2026-11-05 18:24:53"
+    },
+    {
+      "id": "audit_1793903023575_98rl",
+      "action": "Admin Access Denied",
+      "performedBy": "chakalihitesh@gmail.com",
+      "role": "guest",
+      "targetEntity": "Security",
+      "details": "Unregistered Google account (chakalihitesh@gmail.com) attempted Admin portal login.",
+      "timestamp": "2026-11-05 18:23:43"
+    },
+    {
       "id": "audit_1793902910985_h0l3",
       "action": "User Login",
       "performedBy": "Elena Rostova",
@@ -4750,42 +4795,6 @@
       "targetEntity": "Assessment cia_1793852319303",
       "details": "Recorded marks for 1 students",
       "timestamp": "2026-11-05 04:18:39"
-    },
-    {
-      "id": "audit_1793852319306_lvxj",
-      "action": "Assessment Created",
-      "performedBy": "Faculty",
-      "role": "faculty",
-      "targetEntity": "Assessment Realtime Distributed Systems Quiz 1",
-      "details": "Created CIA-1 for CS401 (50 marks)",
-      "timestamp": "2026-11-05 04:18:39"
-    },
-    {
-      "id": "audit_1793852271759_17vd",
-      "action": "User Login",
-      "performedBy": "maruthi",
-      "role": "student",
-      "targetEntity": "Session",
-      "details": "Authenticated as p2@gmail.com (student)",
-      "timestamp": "2026-11-05 04:17:51"
-    },
-    {
-      "id": "audit_1793850144516_43sv",
-      "action": "User Login",
-      "performedBy": "maruthi",
-      "role": "student",
-      "targetEntity": "Session",
-      "details": "Authenticated as p2@gmail.com (student)",
-      "timestamp": "2026-11-05 03:42:24"
-    },
-    {
-      "id": "audit_1793850122789_pswa",
-      "action": "User Logout",
-      "performedBy": "pavankumar",
-      "role": "faculty",
-      "targetEntity": "Session",
-      "details": "User logged out",
-      "timestamp": "2026-11-05 03:42:02"
     }
   ],
   "onlineExams": [

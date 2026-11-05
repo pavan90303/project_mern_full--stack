@@ -4,7 +4,6 @@ import fs from 'fs';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
-import { createServer as createViteServer } from 'vite';
 import { connectDB, isDbConnected } from './server/db/connection';
 import { dbStore } from './server/store/storage';
 import { authMiddleware } from './server/middleware/auth';
@@ -66,11 +65,16 @@ async function startServer() {
 
   // Frontend integration: Vite middleware in dev, static files in prod (if dist exists)
   if (!isProduction) {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa'
-    });
-    app.use(vite.middlewares);
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa'
+      });
+      app.use(vite.middlewares);
+    } catch (e: any) {
+      console.warn('[Vite Dev Server] Dev middleware notice:', e.message);
+    }
   } else {
     const distPath = path.resolve(process.cwd(), 'dist');
     if (fs.existsSync(distPath)) {
