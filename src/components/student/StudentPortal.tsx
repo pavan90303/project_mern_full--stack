@@ -288,13 +288,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     try {
       const res = await EduTrackApi.startOnlineExam(exam.id);
-      if (!res || !res.attempt) {
-        setExamStartError('Unable to start examination. Please contact your instructor.');
+      if (!res || !res.attempt || !res.exam) {
+        setExamStartError(res?.error || 'Unable to start examination. Please contact your instructor.');
         return;
       }
       setActiveTakingExam(res.exam);
       setActiveExamAttempt(res.attempt);
-      setRemainingSeconds(res.remainingSeconds);
+      setRemainingSeconds(res.remainingSeconds || 0);
       const ansMap: Record<string, string> = {};
       const revMap: Record<string, boolean> = {};
 

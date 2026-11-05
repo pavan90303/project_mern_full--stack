@@ -1857,10 +1857,26 @@ export class EduTrackApi {
     return apiRequest<ExamResultsAnalytics>(`/api/online-exams/${id}/results`);
   }
 
-  static async startOnlineExam(id: string): Promise<{ attempt: ExamAttempt; exam: OnlineExam; remainingSeconds: number }> {
-    return apiRequest<{ attempt: ExamAttempt; exam: OnlineExam; remainingSeconds: number }>(`/api/online-exams/${id}/start`, {
-      method: 'POST'
-    });
+  static async startOnlineExam(id: string): Promise<{ attempt?: ExamAttempt; exam?: OnlineExam; remainingSeconds?: number; error?: string }> {
+    const fullUrl = buildApiUrl(`/api/online-exams/${id}/start`);
+    const token = localStorage.getItem(TOKEN_KEY);
+    try {
+      const res = await fetch(fullUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { error: data.error || 'Unable to start examination.' };
+      }
+      return data;
+    } catch (err: any) {
+      return { error: err.message || 'Network error starting examination.' };
+    }
   }
 
   static async saveOnlineExamAnswer(id: string, questionId: string, selectedOption?: string, isMarkedForReview?: boolean): Promise<{ success: boolean }> {
