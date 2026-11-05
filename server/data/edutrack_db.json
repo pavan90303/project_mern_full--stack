@@ -2997,6 +2997,24 @@
   ],
   "auditLogs": [
     {
+      "id": "audit_1793907390918_ssf3",
+      "action": "User Login",
+      "performedBy": "Elena Rostova",
+      "role": "student",
+      "targetEntity": "Session",
+      "details": "Authenticated as student@edutrack.edu (student)",
+      "timestamp": "2026-11-05 19:36:30"
+    },
+    {
+      "id": "audit_1793907390810_fz7e",
+      "action": "User Login",
+      "performedBy": "Prof. Marcus Vance",
+      "role": "faculty",
+      "targetEntity": "Session",
+      "details": "Authenticated as faculty@edutrack.edu (faculty)",
+      "timestamp": "2026-11-05 19:36:30"
+    },
+    {
       "id": "audit_1793906762580_0mfz",
       "action": "User Login",
       "performedBy": "Elena Rostova",
@@ -4776,24 +4794,6 @@
       "role": "admin",
       "targetEntity": "Slot tt_1793852319449",
       "details": "Deleted class period",
-      "timestamp": "2026-11-05 04:18:39"
-    },
-    {
-      "id": "audit_1793852319452_9cuh",
-      "action": "Timetable Entry Created",
-      "performedBy": "Admin",
-      "role": "admin",
-      "targetEntity": "Room Seminar Hall 501",
-      "details": "Scheduled CS401 on Saturday (10:00-11:00)",
-      "timestamp": "2026-11-05 04:18:39"
-    },
-    {
-      "id": "audit_1793852319426_6k75",
-      "action": "Submission Graded",
-      "performedBy": "Faculty",
-      "role": "faculty",
-      "targetEntity": "Submission sub_1793852319404",
-      "details": "Awarded 98 marks to Alex Mercer",
       "timestamp": "2026-11-05 04:18:39"
     }
   ],
