@@ -54,6 +54,11 @@ export async function signInAdminWithGoogle(): Promise<{ idToken: string; email:
     if (error.code === 'auth/network-request-failed') {
       throw new Error('Network error connecting to Google Authentication. Please check your internet connection.');
     }
+    if (error.code === 'auth/unauthorized-domain') {
+      throw new Error(
+        `This domain (${window.location.hostname}) is not authorized in Firebase. Please add "${window.location.hostname}" to Firebase Console -> Authentication -> Settings -> Authorized domains.`
+      );
+    }
     throw new Error(error.message || 'Failed to authenticate with Google.');
   }
 }
