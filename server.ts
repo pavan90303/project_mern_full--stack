@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
@@ -44,7 +45,26 @@ async function startServer() {
   // Mount API endpoints
   app.use('/api', apiRouter);
 
-  // Frontend integration: Vite middleware in dev, static files in prod
+  // Root welcome & health route for standalone backend deployment
+  app.get('/', (req, res) => {
+    res.json({
+      status: 'online',
+      service: 'EduTrack Academic Core API (MERN Full-Stack Backend)',
+      version: '1.0.0',
+      endpoints: {
+        health: '/api/health',
+        databaseStatus: '/api/database/status',
+        databaseData: '/api/database/data',
+        auth: '/api/auth/login',
+        adminGoogleAuth: '/api/auth/admin/google',
+        students: '/api/students',
+        faculty: '/api/faculty',
+        exams: '/api/online-exams'
+      }
+    });
+  });
+
+  // Frontend integration: Vite middleware in dev, static files in prod (if dist exists)
   if (!isProduction) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -53,10 +73,12 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
   server.listen(PORT, '0.0.0.0', () => {
