@@ -179,6 +179,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [examDeptFilter, setExamDeptFilter] = useState(departments[0]?.id || 'all');
   const [examSemFilter, setExamSemFilter] = useState(1);
   const [showCreateExamModal, setShowCreateExamModal] = useState(false);
+  const [examSubjectId, setExamSubjectId] = useState('');
   const [examSubjectCode, setExamSubjectCode] = useState('');
   const [examSubjectName, setExamSubjectName] = useState('');
   const [examDate, setExamDate] = useState('2026-11-20');
@@ -505,6 +506,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
     const targetDeptId = examDeptFilter === 'all' ? (departments[0]?.id || '') : examDeptFilter;
     const dept = departments.find(d => d.id === targetDeptId);
+
+    if (!examSubjectCode || !examSubjectName) {
+      setExamClashError('Please select a subject from the department subjects list.');
+      return;
+    }
+
     const res = EduTrackApi.createExamSchedule({
       departmentId: targetDeptId,
       departmentName: dept ? dept.name : 'Department',
@@ -512,7 +519,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       section: 'All',
       academicYear: '2026-2027',
       examType: 'Mid-Term Exam',
-      subjectId: `sub_${examSubjectCode.toLowerCase()}`,
+      subjectId: examSubjectId || `sub_${examSubjectCode.toLowerCase()}`,
       subjectCode: examSubjectCode,
       subjectName: examSubjectName,
       examDate,
@@ -2688,6 +2695,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           <button
             onClick={() => {
               setExamClashError(null);
+              const initialDeptId = examDeptFilter === 'all' ? (departments[0]?.id || '') : examDeptFilter;
+              if (examDeptFilter === 'all' && departments[0]?.id) {
+                setExamDeptFilter(departments[0].id);
+              }
+              const deptSubs = allSubjects.filter(s => s.departmentId === (initialDeptId || departments[0]?.id));
+              if (deptSubs.length > 0) {
+                setExamSubjectId(deptSubs[0].id);
+                setExamSubjectCode(deptSubs[0].code);
+                setExamSubjectName(deptSubs[0].name);
+                if (deptSubs[0].semester) {
+                  setExamSemFilter(deptSubs[0].semester);
+                }
+              } else {
+                setExamSubjectId('');
+                setExamSubjectCode('');
+                setExamSubjectName('');
+              }
               setShowCreateExamModal(true);
             }}
             className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm flex items-center gap-1.5"
@@ -2860,8 +2884,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Department</label>
                     <select
-                      value={examDeptFilter}
-                      onChange={(e) => setExamDeptFilter(e.target.value)}
+                      value={examDeptFilter === 'all' ? (departments[0]?.id || '') : examDeptFilter}
+                      onChange={(e) => {
+                        const newDeptId = e.target.value;
+                        setExamDeptFilter(newDeptId);
+                        const deptSubs = allSubjects.filter(s => s.departmentId === newDeptId);
+                        if (deptSubs.length > 0) {
+                          setExamSubjectId(deptSubs[0].id);
+                          setExamSubjectCode(deptSubs[0].code);
+                          setExamSubjectName(deptSubs[0].name);
+                          if (deptSubs[0].semester) {
+                            setExamSemFilter(deptSubs[0].semester);
+                          }
+                        } else {
+                          setExamSubjectId('');
+                          setExamSubjectCode('');
+                          setExamSubjectName('');
+                        }
+                      }}
                       className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none"
                     >
                       {departments.map(d => (
@@ -2882,29 +2922,54 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Subject Code</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. CS501"
-                      value={examSubjectCode}
-                      onChange={(e) => setExamSubjectCode(e.target.value)}
-                      className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Course Title</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Operating Systems"
-                      value={examSubjectName}
-                      onChange={(e) => setExamSubjectName(e.target.value)}
-                      className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Subject
+                  </label>
+                  {(() => {
+                    const currentDeptId = examDeptFilter === 'all' ? (departments[0]?.id || '') : examDeptFilter;
+                    const deptSubjects = allSubjects.filter(s => s.departmentId === currentDeptId);
+                    return (
+                      <>
+                        <select
+                          required
+                          value={examSubjectId}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            setExamSubjectId(selectedId);
+                            const sub = allSubjects.find(s => s.id === selectedId);
+                            if (sub) {
+                              setExamSubjectCode(sub.code);
+                              setExamSubjectName(sub.name);
+                              if (sub.semester) {
+                                setExamSemFilter(sub.semester);
+                              }
+                            } else {
+                              setExamSubjectCode('');
+                              setExamSubjectName('');
+                            }
+                          }}
+                          className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none font-medium"
+                        >
+                          <option value="">-- Select Department Subject --</option>
+                          {deptSubjects.length === 0 ? (
+                            <option disabled value="">No subjects found for this department</option>
+                          ) : (
+                            deptSubjects.map(s => (
+                              <option key={s.id} value={s.id}>
+                                {s.code} - {s.name} (Semester {s.semester})
+                              </option>
+                            ))
+                          )}
+                        </select>
+                        {deptSubjects.length === 0 && (
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                            No subjects found for this department. Please create subjects in "Departments & Subjects" tab first.
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
