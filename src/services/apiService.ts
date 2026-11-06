@@ -705,6 +705,10 @@ export class EduTrackApi {
     return subjects[idx];
   }
 
+  static getAllEnrollments(): CourseEnrollment[] {
+    return loadStorage<CourseEnrollment[]>(KEYS.ENROLLMENTS, INITIAL_ENROLLMENTS);
+  }
+
   // --- STUDENTS & PROFILES ---
   static getAllStudents(): StudentProfile[] {
     return loadStorage<StudentProfile[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
@@ -1437,9 +1441,22 @@ export class EduTrackApi {
     });
   }
 
-  static getFacultyTimetable(facultyUserId: string): TimetableEntry[] {
+  static getFacultyTimetable(facultyUserId: string, facultyName?: string, facultyProfileId?: string): TimetableEntry[] {
     const list = loadStorage<TimetableEntry[]>(KEYS.CLASS_TIMETABLE, INITIAL_TIMETABLE);
-    return list.filter(t => t.facultyId === facultyUserId);
+
+    // Sync from server in the background
+    apiRequest<TimetableEntry[]>('/api/timetable/class').then(res => {
+      if (res && Array.isArray(res) && res.length > 0) {
+        saveStorage(KEYS.CLASS_TIMETABLE, res);
+      }
+    }).catch(() => {});
+
+    return list.filter(t => {
+      if (facultyUserId && t.facultyId === facultyUserId) return true;
+      if (facultyProfileId && t.facultyId === facultyProfileId) return true;
+      if (facultyName && t.facultyName && t.facultyName.toLowerCase().trim() === facultyName.toLowerCase().trim()) return true;
+      return false;
+    });
   }
 
   static validateTimetableConflict(candidate: {

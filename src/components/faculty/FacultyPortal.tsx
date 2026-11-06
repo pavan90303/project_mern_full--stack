@@ -122,29 +122,70 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
   const allStudents = EduTrackApi.getAllStudents();
   const allUsers = EduTrackApi.getUsers();
   const allSections = EduTrackApi.getSections();
-
-  const teachingAssignments = EduTrackApi.getTeachingAssignmentsSync(currentUser.id);
-  const taSections = teachingAssignments.map(ta => ta.section).filter(Boolean);
-
-  const deptSections = allSections.filter(s => !profile?.departmentId || s.departmentId === profile.departmentId).map(s => s.name);
-  const rawFacultySections: string[] = [
-    ...(profile?.assignedSections || []),
-    ...taSections,
-    ...deptSections
-  ];
-
-  const effectiveSections = Array.from(new Set(rawFacultySections.length > 0 ? rawFacultySections : ['CSE-A', 'CSE-B', 'CSE-C']));
-
-  // Subjects assigned to this faculty by Admin (or available in department)
   const allSubjects = EduTrackApi.getSubjects();
-  const assignedSubjects: Subject[] = allSubjects.filter(
-    s => s.assignedFacultyId === currentUser.id ||
-         (profile && s.assignedFacultyId === profile.id) ||
-         teachingAssignments.some(ta => ta.subjectId === s.id) ||
-         (profile?.departmentId && s.departmentId === profile.departmentId)
+
+  // 1. Weekly class timetable entries scheduled by Admin for this faculty
+  const allTimetableEntries = EduTrackApi.getClassTimetables();
+  const timetable: TimetableEntry[] = allTimetableEntries.filter(t => {
+    if (currentUser.id && t.facultyId === currentUser.id) return true;
+    if (profile?.id && t.facultyId === profile.id) return true;
+    if (profile?.userId && t.facultyId === profile.userId) return true;
+    if (currentUser.name && t.facultyName && t.facultyName.toLowerCase().trim() === currentUser.name.toLowerCase().trim()) return true;
+    return false;
+  });
+
+  // 2. Teaching assignments explicitly allocated to this faculty
+  const allTAs = EduTrackApi.getTeachingAssignmentsSync();
+  const teachingAssignments = allTAs.filter(ta =>
+    ta.facultyUserId === currentUser.id ||
+    (profile && (ta.facultyId === profile.id || ta.facultyUserId === profile.userId)) ||
+    (currentUser.name && ta.facultyName && ta.facultyName.toLowerCase().trim() === currentUser.name.toLowerCase().trim())
   );
 
-  const timetable: TimetableEntry[] = EduTrackApi.getFacultyTimetable(currentUser.id);
+  // 3. Subjects assigned to this faculty by Admin (Strictly assigned only - NO department fallback)
+  const isSubjectAssigned = (s: Subject) => {
+    // Assigned on subject record
+    if (s.assignedFacultyId === currentUser.id || (profile && s.assignedFacultyId === profile.id)) return true;
+    if (currentUser.name && s.assignedFacultyName && s.assignedFacultyName.toLowerCase().trim() === currentUser.name.toLowerCase().trim()) return true;
+    // In faculty profile's assignedSubjectIds
+    if (profile?.assignedSubjectIds && profile.assignedSubjectIds.includes(s.id)) return true;
+    // In teaching assignments
+    if (teachingAssignments.some(ta => ta.subjectId === s.id || (s.code && ta.subjectCode === s.code))) return true;
+    // In scheduled timetable periods
+    if (timetable.some(t => t.subjectId === s.id || (s.code && t.subjectCode === s.code))) return true;
+    return false;
+  };
+  const assignedSubjects: Subject[] = allSubjects.filter(isSubjectAssigned);
+
+  // 4. Sections explicitly assigned to this faculty
+  const profileSections = profile?.assignedSections || [];
+  const taSections = teachingAssignments.map(ta => ta.section).filter(Boolean);
+  const timetableSections = timetable.map(t => t.section).filter(Boolean);
+
+  const rawFacultySections: string[] = [
+    ...profileSections,
+    ...taSections,
+    ...timetableSections
+  ];
+  let effectiveSections = Array.from(new Set(rawFacultySections)).filter(Boolean);
+
+  // Fallback: If no explicit sections are assigned yet, check if faculty has enrolled students in their assigned subjects
+  if (effectiveSections.length === 0 && assignedSubjects.length > 0) {
+    const allEnrollments = EduTrackApi.getAllEnrollments();
+    const enrolledStudentIds = allEnrollments
+      .filter(e => assignedSubjects.some(sub => sub.id === e.subjectId || sub.code === e.subjectCode))
+      .map(e => e.studentId);
+    const secSet = new Set<string>();
+    allStudents.forEach(st => {
+      if (enrolledStudentIds.includes(st.id) || enrolledStudentIds.includes(st.userId)) {
+        if (st.section) secSet.add(st.section);
+      }
+    });
+    if (secSet.size > 0) {
+      effectiveSections = Array.from(secSet);
+    }
+  }
+
   const materials: StudyMaterial[] = EduTrackApi.getStudyMaterials().filter(m => m.facultyId === currentUser.id);
   const assignments: Assignment[] = EduTrackApi.getAssignments().filter(a => a.facultyId === currentUser.id);
   const internalAssessments: InternalAssessment[] = EduTrackApi.getInternalAssessments(currentUser.id);
@@ -157,14 +198,13 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
     const deptMatch = profile?.departmentId
       ? std.departmentId === profile.departmentId
       : (assignedSubjects.length > 0 ? assignedSubjects.some(sub => sub.departmentId === std.departmentId) : true);
-    const sectionMatch = effectiveSections.some(sec => isMatchingSection(std.section, sec));
+    const sectionMatch = effectiveSections.length > 0
+      ? effectiveSections.some(sec => isMatchingSection(std.section, sec))
+      : true;
     return deptMatch && sectionMatch;
   });
 
-  const facultySectionNames = Array.from(new Set([
-    ...effectiveSections,
-    ...facultyEnrolledStudents.map(s => s.section)
-  ])).filter(Boolean);
+  const facultySectionNames = effectiveSections;
 
   const [enrolledSectionFilter, setEnrolledSectionFilter] = useState<string>('all');
   const [enrolledSearch, setEnrolledSearch] = useState<string>('');
@@ -177,6 +217,18 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [studentAttendanceMap, setStudentAttendanceMap] = useState<Record<string, 'present' | 'absent' | 'late'>>({});
   const [attendanceSavedMessage, setAttendanceSavedMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (assignedSubjects.length > 0 && (!selectedSubjectCode || !assignedSubjects.some(s => s.code === selectedSubjectCode))) {
+      setSelectedSubjectCode(assignedSubjects[0].code);
+    }
+  }, [assignedSubjects, selectedSubjectCode]);
+
+  useEffect(() => {
+    if (effectiveSections.length > 0 && selectedSection !== 'all' && !effectiveSections.some(sec => isMatchingSection(sec, selectedSection))) {
+      setSelectedSection(effectiveSections[0]);
+    }
+  }, [effectiveSections, selectedSection]);
 
   // Material state
   const [newMaterialTitle, setNewMaterialTitle] = useState('');
@@ -1456,9 +1508,15 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                   <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800 text-xs">
                     <span className="font-semibold text-slate-700 dark:text-slate-300">Syllabus Units:</span>
                     <ul className="mt-1 space-y-1 text-slate-500 text-[11px]">
-                      {sub.syllabus.map((unit, idx) => (
-                        <li key={idx}>• {unit}</li>
-                      ))}
+                      {Array.isArray(sub.syllabus) && sub.syllabus.length > 0 ? (
+                        sub.syllabus.map((unit, idx) => (
+                          <li key={idx}>• {unit}</li>
+                        ))
+                      ) : typeof sub.syllabus === 'string' && (sub.syllabus as string).trim() ? (
+                        <li>• {sub.syllabus}</li>
+                      ) : (
+                        <li className="italic text-slate-400">Curriculum syllabus units not published yet.</li>
+                      )}
                     </ul>
                   </div>
                 </div>
@@ -1512,6 +1570,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                     <tr>
                       <th className="py-2.5 px-4 font-semibold">Day</th>
                       <th className="py-2.5 px-4 font-semibold">Period Timeslot</th>
+                      <th className="py-2.5 px-4 font-semibold">Cohort</th>
                       <th className="py-2.5 px-4 font-semibold">Course Code</th>
                       <th className="py-2.5 px-4 font-semibold">Course Title</th>
                       <th className="py-2.5 px-4 font-semibold text-right">Venue Room</th>
@@ -1522,6 +1581,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                       <tr key={slot.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                         <td className="py-3 px-4 font-semibold text-slate-900 dark:text-white">{slot.dayOfWeek}</td>
                         <td className="py-3 px-4 font-mono tabular-nums text-slate-600 dark:text-slate-300">{slot.startTime} - {slot.endTime}</td>
+                        <td className="py-3 px-4 text-slate-600 dark:text-slate-300">Sem {slot.semester} ({slot.section})</td>
                         <td className="py-3 px-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">{slot.subjectCode}</td>
                         <td className="py-3 px-4 text-slate-800 dark:text-slate-200">{slot.subjectName}</td>
                         <td className="py-3 px-4 text-right font-medium text-slate-900 dark:text-white">{slot.room}</td>
@@ -2454,11 +2514,15 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                     }}
                     className="w-full text-xs font-semibold p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none text-slate-900 dark:text-white"
                   >
-                    {(assignedSubjects.length > 0 ? assignedSubjects : allSubjects).map(s => (
-                      <option key={s.id} value={s.code}>
-                        {s.code} - {s.name} (Sem {s.semester})
-                      </option>
-                    ))}
+                    {assignedSubjects.length === 0 ? (
+                      <option value="">No subjects assigned to your account</option>
+                    ) : (
+                      assignedSubjects.map(s => (
+                        <option key={s.id} value={s.code}>
+                          {s.code} - {s.name} (Sem {s.semester})
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
 

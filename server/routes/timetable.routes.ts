@@ -142,6 +142,15 @@ router.get('/class', async (req: Request, res: Response) => {
   const { departmentId, semester, section, facultyId } = req.query;
   const data = dbStore.getData();
 
+  if (isDbConnected()) {
+    try {
+      const dbEntries = await TimetableEntryModel.find({}).lean();
+      if (dbEntries && dbEntries.length > 0) {
+        data.classTimetable = dbEntries as any;
+      }
+    } catch {}
+  }
+
   let list = data.classTimetable || [];
   if (departmentId && departmentId !== 'all') {
     list = list.filter(t => t.departmentId === departmentId || isMatchingDepartment(t.departmentId, String(departmentId)));
