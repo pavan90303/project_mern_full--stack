@@ -118,6 +118,40 @@ router.put('/:id', (req: Request, res: Response) => {
   return res.json(assignment);
 });
 
+// DELETE /api/assignments/:id
+router.delete('/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const data = dbStore.getData();
+  const assignment = data.assignments.find(a => a.id === id);
+  if (!assignment) {
+    return res.status(404).json({ error: 'Assignment not found.' });
+  }
+
+  data.assignments = data.assignments.filter(a => a.id !== id);
+  data.submissions = data.submissions.filter(s => s.assignmentId !== id);
+  dbStore.save();
+
+  emitToRole('student', 'assignment:deleted', { id, title: assignment.title });
+  emitToRole('faculty', 'assignment:deleted', { id, title: assignment.title });
+  emitToAll('assignment:deleted', { id, title: assignment.title });
+
+  dbStore.logAudit(
+    'Assignment Deleted',
+    (req as any).user?.name || 'Faculty',
+    'faculty',
+    `Assignment ${assignment.title}`,
+    `Deleted coursework task`
+  );
+
+  return res.json({ message: 'Assignment deleted successfully', id });
+});
+
+// GET /api/assignments/submissions/all
+router.get('/submissions/all', (req: Request, res: Response) => {
+  const data = dbStore.getData();
+  return res.json(data.submissions || []);
+});
+
 // GET /api/assignments/:id/submissions
 router.get('/:id/submissions', (req: Request, res: Response) => {
   const { id } = req.params;
@@ -137,7 +171,7 @@ router.get('/student/:studentId/submissions', (req: Request, res: Response) => {
 // POST /api/assignments/:id/submit
 router.post('/:id/submit', (req: Request, res: Response) => {
   const { id } = req.params;
-  const { studentId, studentName, rollNumber, fileName, fileSize, notes } = req.body;
+  const { studentId, studentName, rollNumber, fileName, fileSize, notes, fileData } = req.body;
   if (!studentId || !fileName) {
     return res.status(400).json({ error: 'Student ID and file name are required.' });
   }
@@ -161,6 +195,7 @@ router.post('/:id/submit', (req: Request, res: Response) => {
     submittedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
     fileName,
     fileSize: fileSize || '1.8 MB',
+    fileData: fileData || '',
     notes: notes || '',
     status: isLate ? ('late' as const) : ('submitted' as const),
     marksAwarded: undefined,

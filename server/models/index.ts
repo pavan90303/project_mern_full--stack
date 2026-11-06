@@ -368,6 +368,7 @@ export interface ISubmission extends Document {
   submittedAt: string;
   fileName: string;
   fileSize: string;
+  fileData?: string;
   notes?: string;
   status: 'submitted' | 'graded' | 'late';
   marksAwarded?: number;
@@ -383,6 +384,7 @@ export const SubmissionSchema = new Schema<ISubmission>({
   submittedAt: { type: String, required: true },
   fileName: { type: String, required: true },
   fileSize: { type: String, required: true },
+  fileData: { type: String },
   notes: { type: String },
   status: { type: String, enum: ['submitted', 'graded', 'late'], default: 'submitted' },
   marksAwarded: { type: Number },
@@ -456,12 +458,15 @@ export interface IStudyMaterial extends Document {
   subjectId: string;
   subjectCode: string;
   subjectName: string;
+  departmentId?: string;
   facultyId: string;
   facultyName: string;
   title: string;
   description: string;
   type: 'pdf' | 'notes' | 'presentation' | 'link';
+  fileName?: string;
   fileSize?: string;
+  fileData?: string;
   url: string;
   downloadCount: number;
   uploadDate: string;
@@ -473,12 +478,15 @@ export const StudyMaterialSchema = new Schema<IStudyMaterial>({
   subjectId: { type: String, required: true, index: true },
   subjectCode: { type: String, required: true },
   subjectName: { type: String, required: true },
+  departmentId: { type: String },
   facultyId: { type: String, required: true },
   facultyName: { type: String, required: true },
   title: { type: String, required: true },
   description: { type: String, default: '' },
   type: { type: String, enum: ['pdf', 'notes', 'presentation', 'link'], default: 'pdf' },
+  fileName: { type: String },
   fileSize: { type: String },
+  fileData: { type: String },
   url: { type: String, required: true },
   downloadCount: { type: Number, default: 0 },
   uploadDate: { type: String, required: true },

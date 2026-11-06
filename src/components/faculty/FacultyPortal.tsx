@@ -33,7 +33,12 @@ import {
   ChevronDown,
   Eye,
   Layers,
-  Timer
+  Timer,
+  Paperclip,
+  UploadCloud,
+  Download,
+  FileCheck,
+  CheckSquare
 } from 'lucide-react';
 import {
   BarChart,
@@ -186,8 +191,18 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
     }
   }
 
-  const materials: StudyMaterial[] = EduTrackApi.getStudyMaterials().filter(m => m.facultyId === currentUser.id);
-  const assignments: Assignment[] = EduTrackApi.getAssignments().filter(a => a.facultyId === currentUser.id);
+  const materials: StudyMaterial[] = EduTrackApi.getStudyMaterials().filter(m =>
+    m.facultyId === currentUser.id ||
+    (profile && m.facultyId === profile.id) ||
+    (currentUser.name && m.facultyName && m.facultyName.toLowerCase() === currentUser.name.toLowerCase()) ||
+    assignedSubjects.some(sub => sub.id === m.subjectId || sub.code === m.subjectCode)
+  );
+  const assignments: Assignment[] = EduTrackApi.getAssignments().filter(a =>
+    a.facultyId === currentUser.id ||
+    (profile && a.facultyId === profile.id) ||
+    (currentUser.name && a.facultyName && a.facultyName.toLowerCase() === currentUser.name.toLowerCase()) ||
+    assignedSubjects.some(sub => sub.id === a.subjectId || sub.code === a.subjectCode)
+  );
   const internalAssessments: InternalAssessment[] = EduTrackApi.getInternalAssessments(currentUser.id);
   const allSubmissions: Submission[] = EduTrackApi.getSubmissions();
   const facultySubmissions = allSubmissions.filter(s => assignments.some(a => a.id === s.assignmentId));
@@ -236,6 +251,9 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
   const [newMaterialDesc, setNewMaterialDesc] = useState('');
   const [newMaterialType, setNewMaterialType] = useState<'pdf' | 'notes' | 'presentation' | 'link'>('pdf');
   const [newMaterialSubject, setNewMaterialSubject] = useState(assignedSubjects[0]?.code || '');
+  const [newMaterialSection, setNewMaterialSection] = useState<string>('All');
+  const [newMaterialFile, setNewMaterialFile] = useState<File | null>(null);
+  const [newMaterialFileData, setNewMaterialFileData] = useState<string>('');
 
   // Assignments, Exams & Marks tabs
   const getDefaultDueDate = () => {
@@ -248,11 +266,18 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
   const [newAsgTitle, setNewAsgTitle] = useState('');
   const [newAsgSubjectCode, setNewAsgSubjectCode] = useState(assignedSubjects[0]?.code || '');
+  const [newAsgSection, setNewAsgSection] = useState<string>('All');
   const [newAsgDeadline, setNewAsgDeadline] = useState(getDefaultDueDate());
   const [asgDateError, setAsgDateError] = useState<string | null>(null);
   const [newAsgMaxMarks, setNewAsgMaxMarks] = useState(50);
   const [newAsgInstructions, setNewAsgInstructions] = useState('');
   const [newAsgTopicTag, setNewAsgTopicTag] = useState('');
+
+  // Submissions inspector filters
+  const [selectedAsgFilter, setSelectedAsgFilter] = useState<string>('all');
+  const [submissionSectionFilter, setSubmissionSectionFilter] = useState<string>('all');
+  const [submissionSearch, setSubmissionSearch] = useState<string>('');
+  const [submissionStatusFilter, setSubmissionStatusFilter] = useState<'all' | 'submitted' | 'pending' | 'graded'>('all');
 
   // Grading modal state
   const [gradingSubmission, setGradingSubmission] = useState<Submission | null>(null);
@@ -803,7 +828,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
       facultyId: currentUser.id,
       facultyName: currentUser.name,
       semester: sub ? sub.semester : 1,
-      section: 'A',
+      section: newAsgSection || 'All',
       instructions: newAsgInstructions.trim(),
       dueDate: newAsgDeadline,
       maxMarks: newAsgMaxMarks,
@@ -831,28 +856,79 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
     setGradeFeedback('');
   };
 
+  const handleMaterialFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setNewMaterialFile(file);
+    if (!newMaterialTitle.trim()) {
+      const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
+      setNewMaterialTitle(nameWithoutExt);
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setNewMaterialFileData(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDownloadSubmissionFile = (sub: Submission) => {
+    if (sub.fileData && sub.fileData.startsWith('data:')) {
+      const a = document.createElement('a');
+      a.href = sub.fileData;
+      a.download = sub.fileName || 'submission.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
+    const content = `EduTrack Academic Management System\nStudent Assignment Submission Record\n\nStudent: ${sub.studentName} (${sub.rollNumber})\nFile: ${sub.fileName}\nSubmitted At: ${sub.submittedAt}\nNotes:\n${sub.notes || 'No notes provided by student.'}\n\nStatus: ${sub.status}\nMarks Awarded: ${sub.marksAwarded !== undefined ? sub.marksAwarded : 'Pending Review'}\nFaculty Feedback:\n${sub.facultyFeedback || 'No feedback recorded yet.'}\n`;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = sub.fileName.endsWith('.txt') ? sub.fileName : `${sub.fileName.replace(/\.[^/.]+$/, '')}_Review.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleAddMaterial = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMaterialTitle.trim() || !newMaterialSubject) return;
 
     const sub = assignedSubjects.find(s => s.code === newMaterialSubject);
+    const formattedSize = newMaterialFile
+      ? (newMaterialFile.size > 1024 * 1024
+          ? `${(newMaterialFile.size / (1024 * 1024)).toFixed(1)} MB`
+          : `${Math.round(newMaterialFile.size / 1024)} KB`)
+      : '2.4 MB';
 
     EduTrackApi.addStudyMaterial({
       subjectId: sub ? sub.id : `sub_${newMaterialSubject}`,
       subjectCode: newMaterialSubject,
       subjectName: sub ? sub.name : newMaterialSubject,
+      departmentId: sub ? sub.departmentId : (profile?.departmentId || ''),
       facultyId: currentUser.id,
       facultyName: currentUser.name,
       title: newMaterialTitle.trim(),
       description: newMaterialDesc.trim(),
       type: newMaterialType,
-      fileSize: '2.4 MB',
-      url: `#download-${Date.now()}`,
-      semester: sub ? sub.semester : 1
-    });
+      fileName: newMaterialFile ? newMaterialFile.name : `${newMaterialTitle.trim()}.pdf`,
+      fileSize: formattedSize,
+      fileData: newMaterialFileData || '',
+      url: newMaterialFileData || `#download-${Date.now()}`,
+      semester: sub ? sub.semester : 1,
+      section: newMaterialSection
+    }, currentUser.name);
 
     setNewMaterialTitle('');
     setNewMaterialDesc('');
+    setNewMaterialFile(null);
+    setNewMaterialFileData('');
+    alert(`Course Material published successfully for Section ${newMaterialSection}!`);
   };
 
   const handleCreateTest = (e: React.FormEvent) => {
@@ -1855,9 +1931,15 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
         {attMatTab === 'materials' && (
           <div className="space-y-6">
             <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-4">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Upload Course Material</h3>
-              <form onSubmit={handleAddMaterial} className="space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Upload Course Material</h3>
+                  <p className="text-[11px] text-slate-400">Share lecture notes, slides, and syllabus documents with specific sections</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleAddMaterial} className="space-y-3.5">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Subject</label>
                     <select
@@ -1870,8 +1952,23 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                       ))}
                     </select>
                   </div>
+
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Type</label>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Section (Student Cohort)</label>
+                    <select
+                      value={newMaterialSection}
+                      onChange={(e) => setNewMaterialSection(e.target.value)}
+                      className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none font-semibold text-indigo-600 dark:text-indigo-400"
+                    >
+                      <option value="All">All Sections (Department-wide)</option>
+                      {effectiveSections.map(sec => (
+                        <option key={sec} value={sec}>Section {sec} Students Only</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Material Type</label>
                     <select
                       value={newMaterialType}
                       onChange={(e) => setNewMaterialType(e.target.value as any)}
@@ -1886,7 +1983,66 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Title</label>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Choose Course File / Document <span className="text-[11px] text-slate-400 font-normal">(PDF, Word, PPT, Code, ZIP up to 25MB)</span>
+                  </label>
+                  <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 bg-slate-50/50 dark:bg-slate-800/20 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                      <div className="w-10 h-10 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                        <UploadCloud className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        {newMaterialFile ? (
+                          <>
+                            <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                              {newMaterialFile.name}
+                            </p>
+                            <p className="text-[11px] text-emerald-600 font-medium">
+                              File attached · {(newMaterialFile.size / (1024 * 1024)).toFixed(2)} MB
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                              Upload digital lecture notes, lab sheets, or slide decks
+                            </p>
+                            <p className="text-[11px] text-slate-400">
+                              Published exclusively to students of {newMaterialSection === 'All' ? 'all assigned sections' : `Section ${newMaterialSection}`}
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
+                      <label className="cursor-pointer px-3.5 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs flex items-center gap-1.5 transition-colors">
+                        <Paperclip className="w-3.5 h-3.5" />
+                        {newMaterialFile ? 'Change File' : 'Choose File'}
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.zip,.rar,.png,.jpg,.jpeg"
+                          onChange={handleMaterialFileChange}
+                        />
+                      </label>
+                      {newMaterialFile && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewMaterialFile(null);
+                            setNewMaterialFileData('');
+                          }}
+                          className="px-2.5 py-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg font-medium"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Material Title</label>
                   <input
                     type="text"
                     required
@@ -1898,10 +2054,10 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Description</label>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Description / Learning Objectives</label>
                   <textarea
                     rows={2}
-                    placeholder="Topic overview and learning goals..."
+                    placeholder="Topic overview, suggested readings, and learning goals..."
                     value={newMaterialDesc}
                     onChange={(e) => setNewMaterialDesc(e.target.value)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none"
@@ -1913,7 +2069,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                   className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm flex items-center gap-1.5"
                 >
                   <Upload className="w-3.5 h-3.5" />
-                  Publish Material
+                  Publish Material to Section {newMaterialSection}
                 </button>
               </form>
             </div>
@@ -1933,16 +2089,48 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                   {materials.map(mat => (
                     <div key={mat.id} className="p-3.5 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-start justify-between gap-3">
                       <div>
-                        <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">{mat.subjectCode}</span>
-                        <h4 className="text-xs font-bold text-slate-900 dark:text-white mt-0.5">{mat.title}</h4>
-                        <p className="text-[11px] text-slate-500">{mat.description}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">{mat.subjectCode}</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            Section: {mat.section || 'All'}
+                          </span>
+                          <span className="text-[10px] text-slate-400">{mat.fileSize || 'PDF'}</span>
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-900 dark:text-white mt-1">{mat.title}</h4>
+                        {mat.fileName && (
+                          <p className="text-[11px] font-mono text-slate-500 mt-0.5 flex items-center gap-1">
+                            <FileText className="w-3 h-3 text-slate-400" />
+                            {mat.fileName}
+                          </p>
+                        )}
+                        <p className="text-[11px] text-slate-500 mt-0.5">{mat.description}</p>
                       </div>
-                      <button
-                        onClick={() => EduTrackApi.deleteStudyMaterial(mat.id, currentUser.name)}
-                        className="text-slate-400 hover:text-rose-600 p-1"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {mat.fileData && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const a = document.createElement('a');
+                              a.href = mat.fileData!;
+                              a.download = mat.fileName || `${mat.title}.pdf`;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                            title="Download / preview file"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => EduTrackApi.deleteStudyMaterial(mat.id, currentUser.name)}
+                          className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                          title="Delete material"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -2022,7 +2210,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
               <div className="rounded-xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50/20 dark:bg-indigo-950/20 p-6 shadow-xs space-y-4">
                 <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">New Course Assignment</h4>
                 <form onSubmit={handleCreateAssignment} className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Subject</label>
                       <select
@@ -2036,8 +2224,21 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                       </select>
                     </div>
                     <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Section</label>
+                      <select
+                        value={newAsgSection}
+                        onChange={(e) => setNewAsgSection(e.target.value)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none"
+                      >
+                        <option value="All">All Sections (Entire Cohort)</option>
+                        {effectiveSections.map(sec => (
+                          <option key={sec} value={sec}>Section {sec}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
                       <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                        Due Date <span className="text-[10px] text-slate-400 font-normal">(Today or future only)</span>
+                        Due Date <span className="text-[10px] text-slate-400 font-normal">(Today or future)</span>
                       </label>
                       <input
                         type="date"
@@ -2112,100 +2313,579 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
               </div>
             )}
 
-            {/* Submissions list */}
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs">
-              <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-4">
-                Student Submissions ({facultySubmissions.length})
-              </h4>
+            {/* Published Assignments Cards */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <CheckSquare className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  Active Coursework Tasks ({assignments.length})
+                </h4>
+                <span className="text-[11px] text-slate-400">
+                  Select an assignment to view enrolled students and submitted files
+                </span>
+              </div>
 
-              {facultySubmissions.length === 0 ? (
-                <div className="p-8 text-center text-xs text-slate-400">
-                  No submissions uploaded by students yet.
+              {assignments.length === 0 ? (
+                <div className="p-8 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-400 text-xs">
+                  No assignments published yet. Click "+ Create Assignment" to set up coursework tasks.
                 </div>
               ) : (
-                <>
-                  {/* Mobile View: Stacked Cards (md:hidden) */}
-                  <div className="md:hidden space-y-3">
-                    {facultySubmissions.map(sub => (
-                      <div key={sub.id} className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-2.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="font-semibold text-xs text-slate-900 dark:text-white">{sub.studentName}</span>
-                            <span className="block text-[11px] font-mono text-slate-400">{sub.rollNumber}</span>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {assignments.map(asg => {
+                    const asgStudents = allStudents.filter(std => {
+                      const sub = allSubjects.find(s => s.id === asg.subjectId || s.code === asg.subjectCode);
+                      if (sub && sub.departmentId && std.departmentId && std.departmentId !== sub.departmentId) return false;
+                      const targetSem = asg.semester || sub?.semester;
+                      if (targetSem && std.currentSemester && std.currentSemester !== targetSem) return false;
+                      if (asg.section && asg.section !== 'All' && asg.section !== 'all') {
+                        return isMatchingSection(asg.section, std.section);
+                      }
+                      if (effectiveSections.length > 0) {
+                        return effectiveSections.some(sec => isMatchingSection(sec, std.section));
+                      }
+                      return true;
+                    });
+
+                    const asgSubs = allSubmissions.filter(s => s.assignmentId === asg.id);
+                    const totalEligible = asgStudents.length > 0 ? asgStudents.length : Math.max(asgSubs.length, 1);
+                    const subCount = asgSubs.length;
+                    const completionPct = Math.min(100, Math.round((subCount / totalEligible) * 100));
+
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    const isOverdue = asg.dueDate < todayStr;
+                    const isDueToday = asg.dueDate === todayStr;
+
+                    return (
+                      <div
+                        key={asg.id}
+                        className={`p-4 rounded-xl border transition-all bg-white dark:bg-slate-900 flex flex-col justify-between ${
+                          selectedAsgFilter === asg.id
+                            ? 'border-indigo-500 shadow-md ring-1 ring-indigo-500/30'
+                            : 'border-slate-200 dark:border-slate-800 shadow-xs hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300">
+                              {asg.subjectCode}
+                            </span>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                              {asg.section && asg.section !== 'All' ? `Sec ${asg.section}` : 'All Sections'}
+                            </span>
                           </div>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                            sub.status === 'graded' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
-                          }`}>
-                            {sub.status === 'graded' ? `${sub.marksAwarded} Marks` : 'Pending Review'}
-                          </span>
+
+                          <div>
+                            <h5 className="font-bold text-sm text-slate-900 dark:text-white line-clamp-1" title={asg.title}>
+                              {asg.title}
+                            </h5>
+                            <p className="text-[11px] text-slate-500 line-clamp-2 mt-0.5">
+                              {asg.instructions || 'No special instructions provided.'}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800">
+                            <span className="text-slate-500 flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-slate-400" />
+                              Due: <span className="font-semibold text-slate-700 dark:text-slate-300">{asg.dueDate}</span>
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              isOverdue
+                                ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400'
+                                : isDueToday
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+                                : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
+                            }`}>
+                              {isOverdue ? 'Overdue' : isDueToday ? 'Due Today' : 'Active'}
+                            </span>
+                          </div>
+
+                          {/* Submission Progress */}
+                          <div className="space-y-1 pt-1">
+                            <div className="flex justify-between items-center text-[11px]">
+                              <span className="text-slate-500 font-medium">Submissions</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">
+                                {subCount} / {totalEligible} ({completionPct}%)
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                              <div
+                                style={{ width: `${completionPct}%` }}
+                                className={`h-full rounded-full transition-all ${
+                                  completionPct >= 80 ? 'bg-emerald-500' : completionPct > 0 ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-700'
+                                }`}
+                              />
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-[11px] text-slate-500 font-mono truncate">
-                          File: {sub.fileName}
-                        </div>
-                        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                          <span>{sub.submittedAt}</span>
+
+                        <div className="flex items-center justify-between gap-2 pt-3 mt-3 border-t border-slate-100 dark:border-slate-800">
                           <button
+                            type="button"
                             onClick={() => {
-                              setGradingSubmission(sub);
-                              setGradeMarks(sub.marksAwarded || 40);
-                              setGradeFeedback(sub.facultyFeedback || '');
+                              setSelectedAsgFilter(asg.id);
+                              const rosterElem = document.getElementById('submissions-roster-section');
+                              if (rosterElem) {
+                                rosterElem.scrollIntoView({ behavior: 'smooth' });
+                              }
                             }}
-                            className="px-3 py-1 text-xs font-semibold bg-indigo-600 text-white rounded-lg shadow-xs hover:bg-indigo-700 transition-colors min-h-[36px]"
+                            className={`flex-1 py-1.5 px-2.5 text-xs font-semibold rounded-lg text-center transition-colors ${
+                              selectedAsgFilter === asg.id
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'bg-slate-100 hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+                            }`}
                           >
-                            {sub.status === 'graded' ? 'Edit Grade' : 'Grade Submission'}
+                            {selectedAsgFilter === asg.id ? 'Viewing Roster' : `Inspect Roster (${subCount})`}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to delete assignment "${asg.title}"? This cannot be undone.`)) {
+                                EduTrackApi.deleteAssignment(asg.id, currentUser.name);
+                                if (selectedAsgFilter === asg.id) {
+                                  setSelectedAsgFilter('all');
+                                }
+                              }
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
+                            title="Delete Assignment"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-
-                  {/* Desktop View: Full Table (hidden md:block) */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 uppercase tracking-wider text-[11px] border-y border-slate-200 dark:border-slate-800">
-                        <tr>
-                          <th className="py-2.5 px-4 font-semibold">Student</th>
-                          <th className="py-2.5 px-4 font-semibold">File Uploaded</th>
-                          <th className="py-2.5 px-4 font-semibold">Submitted At</th>
-                          <th className="py-2.5 px-4 font-semibold">Grade</th>
-                          <th className="py-2.5 px-4 font-semibold text-right">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {facultySubmissions.map(sub => (
-                          <tr key={sub.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                            <td className="py-2.5 px-4">
-                              <span className="font-semibold text-slate-900 dark:text-white">{sub.studentName}</span>
-                              <span className="block text-[11px] font-mono text-slate-400">{sub.rollNumber}</span>
-                            </td>
-                            <td className="py-2.5 px-4 font-mono text-indigo-600 dark:text-indigo-400">{sub.fileName}</td>
-                            <td className="py-2.5 px-4 text-slate-500">{sub.submittedAt}</td>
-                            <td className="py-2.5 px-4 font-mono">
-                              {sub.status === 'graded' ? (
-                                <span className="font-bold text-emerald-600">{sub.marksAwarded} marks</span>
-                              ) : (
-                                <span className="text-amber-600">Pending Review</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-4 text-right">
-                              <button
-                                onClick={() => {
-                                  setGradingSubmission(sub);
-                                  setGradeMarks(sub.marksAwarded || 40);
-                                  setGradeFeedback(sub.facultyFeedback || '');
-                                }}
-                                className="px-3 py-1 text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 rounded hover:bg-indigo-100"
-                              >
-                                {sub.status === 'graded' ? 'Edit Grade' : 'Grade Submission'}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
+                    );
+                  })}
+                </div>
               )}
+            </div>
+
+            {/* Submissions & Full Roster View */}
+            <div id="submissions-roster-section" className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <FileCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    Student Submissions & Cohort Tracking
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    View submitted coursework files, verify turn-in timestamps, inspect student notes, and grade evaluations.
+                  </p>
+                </div>
+                {selectedAsgFilter !== 'all' && (
+                  <button
+                    onClick={() => setSelectedAsgFilter('all')}
+                    className="self-start sm:self-auto text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    View All Assignments
+                  </button>
+                )}
+              </div>
+
+              {/* Filters Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <div>
+                  <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Filter by Assignment</label>
+                  <select
+                    value={selectedAsgFilter}
+                    onChange={(e) => setSelectedAsgFilter(e.target.value)}
+                    className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none font-medium text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="all">All Assignments ({assignments.length})</option>
+                    {assignments.map(a => {
+                      const subs = allSubmissions.filter(s => s.assignmentId === a.id);
+                      return (
+                        <option key={a.id} value={a.id}>
+                          {a.title} ({a.subjectCode} - {a.section || 'All'}) [{subs.length} submitted]
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Filter by Section</label>
+                  <select
+                    value={submissionSectionFilter}
+                    onChange={(e) => setSubmissionSectionFilter(e.target.value)}
+                    className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none font-medium text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="all">All Teaching Sections</option>
+                    {effectiveSections.map(sec => (
+                      <option key={sec} value={sec}>Section {sec}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Filter by Status</label>
+                  <select
+                    value={submissionStatusFilter}
+                    onChange={(e) => setSubmissionStatusFilter(e.target.value as any)}
+                    className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none font-medium text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="all">All Students (Submitted & Pending)</option>
+                    <option value="submitted">Submitted Work Only</option>
+                    <option value="pending">Pending / Missing Only</option>
+                    <option value="graded">Graded Only</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Search Student / File</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search name, roll no, or file..."
+                      value={submissionSearch}
+                      onChange={(e) => setSubmissionSearch(e.target.value)}
+                      className="w-full text-xs p-2 pl-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none text-slate-800 dark:text-slate-200"
+                    />
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2.5" />
+                  </div>
+                </div>
+              </div>
+
+              {(() => {
+                const targetAssignments = selectedAsgFilter === 'all'
+                  ? assignments
+                  : assignments.filter(a => a.id === selectedAsgFilter);
+
+                if (targetAssignments.length === 0) {
+                  return (
+                    <div className="p-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                      No assignments found matching the selected filter.
+                    </div>
+                  );
+                }
+
+                type RosterRow = {
+                  key: string;
+                  student: StudentProfile;
+                  assignment: Assignment;
+                  submission?: Submission;
+                  status: 'graded' | 'submitted' | 'pending';
+                };
+
+                const rows: RosterRow[] = [];
+
+                for (const asg of targetAssignments) {
+                  const cohortStudents = allStudents.filter(std => {
+                    const sub = allSubjects.find(s => s.id === asg.subjectId || s.code === asg.subjectCode);
+                    if (sub && sub.departmentId && std.departmentId && std.departmentId !== sub.departmentId) return false;
+                    const targetSem = asg.semester || sub?.semester;
+                    if (targetSem && std.currentSemester && std.currentSemester !== targetSem) return false;
+                    if (asg.section && asg.section !== 'All' && asg.section !== 'all') {
+                      return isMatchingSection(asg.section, std.section);
+                    }
+                    if (effectiveSections.length > 0) {
+                      return effectiveSections.some(sec => isMatchingSection(sec, std.section));
+                    }
+                    return true;
+                  });
+
+                  const asgSubs = allSubmissions.filter(s => s.assignmentId === asg.id);
+                  const studentPool = [...cohortStudents];
+                  for (const sub of asgSubs) {
+                    if (!studentPool.some(std => std.id === sub.studentId || std.rollNumber === sub.rollNumber)) {
+                      const foundStd = allStudents.find(std => std.id === sub.studentId || std.rollNumber === sub.rollNumber);
+                      if (foundStd) {
+                        studentPool.push(foundStd);
+                      } else {
+                        studentPool.push({
+                          id: sub.studentId,
+                          name: sub.studentName,
+                          rollNumber: sub.rollNumber,
+                          email: `${sub.rollNumber}@college.edu`,
+                          departmentId: profile?.departmentId || 'dept_cse',
+                          currentSemester: asg.semester || 6,
+                          section: 'A',
+                          role: 'STUDENT',
+                          status: 'active',
+                          attendancePercentage: 85,
+                          cgpa: 8.0
+                        });
+                      }
+                    }
+                  }
+
+                  for (const std of studentPool) {
+                    const sub = asgSubs.find(s => s.studentId === std.id || s.rollNumber === std.rollNumber);
+                    const status: 'graded' | 'submitted' | 'pending' = sub ? (sub.status === 'graded' ? 'graded' : 'submitted') : 'pending';
+                    rows.push({
+                      key: `${asg.id}_${std.id}`,
+                      student: std,
+                      assignment: asg,
+                      submission: sub,
+                      status
+                    });
+                  }
+                }
+
+                const totalRosterCount = rows.length;
+                const totalSubmittedCount = rows.filter(r => r.submission !== undefined).length;
+                const totalPendingCount = rows.filter(r => r.submission === undefined).length;
+                const totalGradedCount = rows.filter(r => r.status === 'graded').length;
+                const completionPct = totalRosterCount > 0 ? Math.round((totalSubmittedCount / totalRosterCount) * 100) : 0;
+
+                const filteredRows = rows.filter(r => {
+                  if (submissionSectionFilter !== 'all') {
+                    if (!isMatchingSection(r.student.section, submissionSectionFilter)) return false;
+                  }
+                  if (submissionStatusFilter === 'submitted' && !r.submission) return false;
+                  if (submissionStatusFilter === 'pending' && r.submission) return false;
+                  if (submissionStatusFilter === 'graded' && r.status !== 'graded') return false;
+                  if (submissionSearch.trim()) {
+                    const q = submissionSearch.toLowerCase();
+                    const matchName = r.student.name.toLowerCase().includes(q);
+                    const matchRoll = r.student.rollNumber.toLowerCase().includes(q);
+                    const matchFile = r.submission?.fileName?.toLowerCase().includes(q) || false;
+                    const matchAsg = r.assignment.title.toLowerCase().includes(q);
+                    if (!matchName && !matchRoll && !matchFile && !matchAsg) return false;
+                  }
+                  return true;
+                });
+
+                return (
+                  <div className="space-y-4">
+                    {/* 4-Card KPI Overview */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
+                        <p className="text-[10px] font-bold uppercase text-slate-400">Total Enrolled</p>
+                        <p className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{totalRosterCount}</p>
+                        <p className="text-[11px] text-slate-500">Students in cohort</p>
+                      </div>
+                      <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20">
+                        <p className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400">Submissions Received</p>
+                        <p className="text-xl font-black text-emerald-700 dark:text-emerald-300 mt-0.5">{totalSubmittedCount}</p>
+                        <p className="text-[11px] text-emerald-600/80">Turned-in work</p>
+                      </div>
+                      <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/20">
+                        <p className="text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400">Pending Submissions</p>
+                        <p className="text-xl font-black text-amber-700 dark:text-amber-300 mt-0.5">{totalPendingCount}</p>
+                        <p className="text-[11px] text-amber-600/80">Awaiting upload</p>
+                      </div>
+                      <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20">
+                        <p className="text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400">Completion Rate</p>
+                        <p className="text-xl font-black text-indigo-700 dark:text-indigo-300 mt-0.5">{completionPct}%</p>
+                        <p className="text-[11px] text-indigo-600/80">{totalGradedCount} graded</p>
+                      </div>
+                    </div>
+
+                    {/* Empty Filter State */}
+                    {filteredRows.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                        No students match the current filter criteria.
+                      </div>
+                    ) : (
+                      <>
+                        {/* Mobile View: Stacked Cards */}
+                        <div className="md:hidden space-y-3">
+                          {filteredRows.map(row => {
+                            const { student, assignment, submission, status } = row;
+                            return (
+                              <div
+                                key={row.key}
+                                className={`p-4 rounded-xl border space-y-3 ${
+                                  submission
+                                    ? 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'
+                                    : 'border-dashed border-amber-200 dark:border-amber-900/40 bg-amber-50/20 dark:bg-amber-950/10'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <span className="font-bold text-xs text-slate-900 dark:text-white">{student.name}</span>
+                                    <span className="block text-[11px] font-mono text-slate-400">{student.rollNumber} • Sec {student.section}</span>
+                                  </div>
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    status === 'graded'
+                                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                                      : status === 'submitted'
+                                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
+                                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                                  }`}>
+                                    {status === 'graded'
+                                      ? `${submission?.marksAwarded} / ${assignment.maxMarks} M`
+                                      : status === 'submitted'
+                                      ? 'Submitted'
+                                      : 'Pending'}
+                                  </span>
+                                </div>
+
+                                <div className="text-[11px] text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-lg space-y-1">
+                                  <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                    {assignment.title} ({assignment.subjectCode})
+                                  </div>
+                                  {submission ? (
+                                    <>
+                                      <div className="flex items-center gap-1.5 font-mono text-indigo-600 dark:text-indigo-400">
+                                        <FileText className="w-3.5 h-3.5 shrink-0" />
+                                        <span className="truncate">{submission.fileName}</span>
+                                        {submission.fileSize && <span className="text-[10px] text-slate-400">({submission.fileSize})</span>}
+                                      </div>
+                                      {submission.notes && (
+                                        <p className="text-[11px] text-slate-500 italic mt-0.5">"{submission.notes}"</p>
+                                      )}
+                                      <div className="text-[10px] text-slate-400 pt-0.5">
+                                        Submitted: {submission.submittedAt}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="text-[11px] text-amber-600 dark:text-amber-400 italic">
+                                      No coursework uploaded yet.
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                                  {submission ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDownloadSubmissionFile(submission)}
+                                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400"
+                                      >
+                                        <Download className="w-3.5 h-3.5" />
+                                        Download File
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setGradingSubmission(submission);
+                                          setGradeMarks(submission.marksAwarded || 40);
+                                          setGradeFeedback(submission.facultyFeedback || '');
+                                        }}
+                                        className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs"
+                                      >
+                                        {status === 'graded' ? 'Edit Grade' : 'Grade Submission'}
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-400 italic">Awaiting Student Upload</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Desktop View: Full Roster Table */}
+                        <div className="hidden md:block overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 uppercase tracking-wider text-[11px] border-y border-slate-200 dark:border-slate-800">
+                              <tr>
+                                <th className="py-2.5 px-4 font-semibold">Student & Section</th>
+                                <th className="py-2.5 px-4 font-semibold">Assignment</th>
+                                <th className="py-2.5 px-4 font-semibold">Status</th>
+                                <th className="py-2.5 px-4 font-semibold">Submitted Work & File</th>
+                                <th className="py-2.5 px-4 font-semibold text-right">Evaluation & Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {filteredRows.map(row => {
+                                const { student, assignment, submission, status } = row;
+                                return (
+                                  <tr key={row.key} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors">
+                                    <td className="py-3 px-4">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[11px] font-bold text-slate-700 dark:text-slate-200 shrink-0">
+                                          {student.name.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div>
+                                          <span className="font-semibold text-slate-900 dark:text-white block">{student.name}</span>
+                                          <span className="text-[11px] font-mono text-slate-400">
+                                            {student.rollNumber} • <span className="font-medium text-slate-500">Sec {student.section}</span>
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="py-3 px-4 max-w-xs">
+                                      <span className="font-semibold text-slate-800 dark:text-slate-200 block truncate" title={assignment.title}>
+                                        {assignment.title}
+                                      </span>
+                                      <span className="text-[11px] text-slate-400 font-mono">
+                                        {assignment.subjectCode} • Max: {assignment.maxMarks}M
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      {status === 'graded' ? (
+                                        <div>
+                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                            Graded: {submission?.marksAwarded} M
+                                          </span>
+                                          <span className="block text-[10px] text-slate-400 mt-0.5">out of {assignment.maxMarks}</span>
+                                        </div>
+                                      ) : status === 'submitted' ? (
+                                        <div>
+                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+                                            Submitted
+                                          </span>
+                                          <span className="block text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">Pending Review</span>
+                                        </div>
+                                      ) : (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                                          Pending Upload
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      {submission ? (
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-1.5 font-mono text-indigo-600 dark:text-indigo-400 font-medium">
+                                            <FileText className="w-3.5 h-3.5 shrink-0" />
+                                            <span className="max-w-[180px] truncate" title={submission.fileName}>{submission.fileName}</span>
+                                            {submission.fileSize && (
+                                              <span className="text-[10px] text-slate-400">({submission.fileSize})</span>
+                                            )}
+                                          </div>
+                                          {submission.notes && (
+                                            <p className="text-[11px] text-slate-500 italic max-w-xs truncate" title={submission.notes}>
+                                              "{submission.notes}"
+                                            </p>
+                                          )}
+                                          <div className="flex items-center gap-3">
+                                            <span className="text-[10px] text-slate-400">{submission.submittedAt}</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDownloadSubmissionFile(submission)}
+                                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 hover:underline"
+                                            >
+                                              <Download className="w-3 h-3" />
+                                              Download
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-400 italic text-[11px]">No file submitted yet</span>
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-4 text-right">
+                                      {submission ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setGradingSubmission(submission);
+                                            setGradeMarks(submission.marksAwarded || 40);
+                                            setGradeFeedback(submission.facultyFeedback || '');
+                                          }}
+                                          className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs transition-colors"
+                                        >
+                                          {status === 'graded' ? 'Edit Grade' : 'Grade Submission'}
+                                        </button>
+                                      ) : (
+                                        <span className="text-slate-400 text-xs">Awaiting Student Work</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

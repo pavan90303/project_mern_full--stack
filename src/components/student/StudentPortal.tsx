@@ -157,7 +157,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const timetable: TimetableEntry[] = EduTrackApi.getClassTimetables(profile.departmentId, profile.currentSemester, profile.section);
   const assignments: Assignment[] = EduTrackApi.getAssignments(profile.currentSemester);
   const submissions: Submission[] = EduTrackApi.getSubmissions().filter(s => s.studentId === profile.id);
-  const materials: StudyMaterial[] = EduTrackApi.getStudyMaterials(profile.currentSemester);
+  const materials: StudyMaterial[] = EduTrackApi.getStudyMaterials(profile.departmentId, profile.currentSemester, profile.section);
   const [studentExamSemFilter, setStudentExamSemFilter] = useState<number | 'all'>('all');
   const exams: ExamSchedule[] = EduTrackApi.getExamSchedules(
     profile.departmentId,
@@ -458,20 +458,53 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       return;
     }
 
-    EduTrackApi.submitAssignment(
-      selectedAssignmentId,
-      profile.id,
-      currentUser.name,
-      profile.rollNumber,
-      submissionFile.name,
-      `${(submissionFile.size / (1024 * 1024)).toFixed(1)} MB`,
-      submissionNotes
-    );
+    const fileReader = new FileReader();
+    fileReader.onload = () => {
+      const fileData = typeof fileReader.result === 'string' ? fileReader.result : '';
+      EduTrackApi.submitAssignment(
+        selectedAssignmentId,
+        profile.id,
+        currentUser.name,
+        profile.rollNumber,
+        submissionFile.name,
+        `${(submissionFile.size / (1024 * 1024)).toFixed(1)} MB`,
+        submissionNotes,
+        fileData
+      );
 
-    setSubmissionSuccess(`Successfully submitted "${submissionFile.name}"!`);
-    setSubmissionFile(null);
-    setSubmissionNotes('');
-    setTimeout(() => setSubmissionSuccess(null), 5000);
+      setSubmissionSuccess(`Successfully submitted "${submissionFile.name}"!`);
+      setSubmissionFile(null);
+      setSubmissionNotes('');
+      setTimeout(() => setSubmissionSuccess(null), 5000);
+    };
+    fileReader.readAsDataURL(submissionFile);
+  };
+
+  const handleDownloadMaterial = (mat: StudyMaterial) => {
+    EduTrackApi.incrementMaterialDownload(mat.id);
+    if (mat.fileData && mat.fileData.startsWith('data:')) {
+      const a = document.createElement('a');
+      a.href = mat.fileData;
+      a.download = mat.fileName || `${mat.title.replace(/\s+/g, '_')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
+    if (mat.url && (mat.url.startsWith('http://') || mat.url.startsWith('https://'))) {
+      window.open(mat.url, '_blank');
+      return;
+    }
+    const content = `EduTrack Academic Management System - Course Material\n\nCourse: ${mat.subjectCode} - ${mat.subjectName}\nTitle: ${mat.title}\nSection: ${mat.section || 'All'}\nInstructor: ${mat.facultyName}\nDate Published: ${mat.uploadDate}\n\nDescription:\n${mat.description || 'Curriculum resource material.'}\n`;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = mat.fileName || `${mat.title.replace(/\s+/g, '_')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // 1. DASHBOARD
@@ -2688,8 +2721,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     <div className="mt-4 pt-3 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between text-xs">
                       <span className="text-slate-400">{mat.fileSize || 'PDF'}</span>
                       <button
-                        onClick={() => {}}
-                        className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline flex items-center gap-1"
+                        onClick={() => handleDownloadMaterial(mat)}
+                        className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
+                        title="Download authorized course material"
                       >
                         <Download className="w-3.5 h-3.5" />
                         Download

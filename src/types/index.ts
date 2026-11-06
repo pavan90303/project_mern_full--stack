@@ -194,11 +194,14 @@ export interface StudyMaterial {
   description: string;
   type: 'pdf' | 'notes' | 'presentation' | 'link';
   fileSize?: string;
+  fileName?: string;
+  fileData?: string;
   url: string;
   downloadCount: number;
   uploadDate: string;
   semester: number;
   section?: string;
+  departmentId?: string;
 }
 
 export interface Assignment {
@@ -229,6 +232,7 @@ export interface Submission {
   submittedAt: string;
   fileName: string;
   fileSize: string;
+  fileData?: string;
   notes?: string;
   status: 'submitted' | 'graded' | 'late';
   marksAwarded?: number;

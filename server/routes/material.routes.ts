@@ -6,7 +6,7 @@ const router = Router();
 
 // GET /api/materials
 router.get('/', (req: Request, res: Response) => {
-  const { subjectId, semester, departmentId } = req.query;
+  const { subjectId, semester, departmentId, section } = req.query;
   const data = dbStore.getData();
 
   let list = data.studyMaterials;
@@ -20,33 +20,39 @@ router.get('/', (req: Request, res: Response) => {
     const deptSubjectIds = data.subjects.filter(s => s.departmentId === departmentId).map(s => s.id);
     list = list.filter(m => deptSubjectIds.includes(m.subjectId));
   }
+  if (section && section !== 'all' && section !== 'All') {
+    list = list.filter(m => !m.section || m.section === 'all' || m.section === 'All' || m.section === section);
+  }
 
   return res.json(list);
 });
 
 // POST /api/materials
 router.post('/', (req: Request, res: Response) => {
-  const { subjectId, title, description, type, url, fileSize, semester, section } = req.body;
-  if (!subjectId || !title || !url) {
-    return res.status(400).json({ error: 'Subject, Title, and Resource URL are required.' });
+  const { subjectId, title, description, type, url, fileSize, fileName, fileData, semester, section, departmentId } = req.body;
+  if (!subjectId || !title) {
+    return res.status(400).json({ error: 'Subject and Title are required.' });
   }
 
   const data = dbStore.getData();
-  const subject = data.subjects.find(s => s.id === subjectId);
+  const subject = data.subjects.find(s => s.id === subjectId || s.code === subjectId);
   const user = (req as any).user;
 
   const newMaterial = {
     id: `mat_${Date.now()}`,
-    subjectId,
+    subjectId: subject ? subject.id : subjectId,
     subjectCode: subject ? subject.code : 'CS401',
     subjectName: subject ? subject.name : 'Study Material',
+    departmentId: departmentId || (subject ? subject.departmentId : 'dept_cse'),
     facultyId: user?.id || 'usr_fac_01',
     facultyName: user?.name || 'Prof. Marcus Vance',
-    title,
+    title: title.trim(),
     description: description || '',
     type: type || 'pdf',
+    fileName: fileName || `${title.replace(/\s+/g, '_')}.pdf`,
     fileSize: fileSize || '2.4 MB',
-    url,
+    fileData: fileData || '',
+    url: url || fileData || `#download-${Date.now()}`,
     downloadCount: 0,
     uploadDate: new Date().toISOString().split('T')[0],
     semester: Number(semester) || (subject ? subject.semester : 6),

@@ -208,7 +208,8 @@ export class EduTrackApi {
         allEnrollments,
         allResults,
         onlineExamsList,
-        serverUsers
+        serverUsers,
+        serverSubmissions
       ] = await Promise.all([
         apiRequest<Department[]>('/api/departments'),
         apiRequest<Section[]>('/api/sections'),
@@ -226,7 +227,8 @@ export class EduTrackApi {
         apiRequest<CourseEnrollment[]>('/api/students/enrollments/all'),
         apiRequest<AssessmentResult[]>('/api/students/results/all'),
         apiRequest<OnlineExam[]>('/api/online-exams'),
-        apiRequest<User[]>('/api/auth/users')
+        apiRequest<User[]>('/api/auth/users'),
+        apiRequest<Submission[]>('/api/assignments/submissions/all')
       ]);
 
       if (serverUsers && Array.isArray(serverUsers)) {
@@ -353,6 +355,16 @@ export class EduTrackApi {
       }
       if (onlineExamsList && Array.isArray(onlineExamsList)) {
         saveStorage(KEYS.ONLINE_EXAMS, onlineExamsList);
+      }
+      if (serverSubmissions && Array.isArray(serverSubmissions)) {
+        const localSubs = loadStorage<Submission[]>(KEYS.SUBMISSIONS, INITIAL_SUBMISSIONS);
+        const mergedSubs = [...serverSubmissions];
+        localSubs.forEach(ls => {
+          if (!mergedSubs.some(ms => ms.id === ls.id || (ms.assignmentId === ls.assignmentId && ms.studentId === ls.studentId))) {
+            mergedSubs.push(ls);
+          }
+        });
+        saveStorage(KEYS.SUBMISSIONS, mergedSubs);
       }
     } catch {
       // Offline fallback
@@ -1716,14 +1728,23 @@ export class EduTrackApi {
   }
 
   // --- STUDY MATERIALS ---
-  static getStudyMaterials(departmentIdOrSemester?: string | number, semester?: number): StudyMaterial[] {
+  static getStudyMaterials(departmentIdOrSemester?: string | number, semester?: number, section?: string): StudyMaterial[] {
     let sem = semester;
+    let dept: string | undefined;
     if (typeof departmentIdOrSemester === 'number') {
       sem = departmentIdOrSemester;
+    } else if (typeof departmentIdOrSemester === 'string') {
+      dept = departmentIdOrSemester;
     }
     const list = loadStorage<StudyMaterial[]>(KEYS.MATERIALS, INITIAL_STUDY_MATERIALS);
     return list.filter(m => {
-      if (sem && m.semester !== sem) return false;
+      if (dept && m.departmentId && !isMatchingDepartment(m.departmentId, dept)) return false;
+      if (sem && m.semester && m.semester !== sem) return false;
+      if (section && section !== 'all' && section !== 'All') {
+        if (m.section && m.section !== 'all' && m.section !== 'All' && !isMatchingSection(m.section, section)) {
+          return false;
+        }
+      }
       return true;
     });
   }
@@ -1817,6 +1838,18 @@ export class EduTrackApi {
     return newAssignment;
   }
 
+  static deleteAssignment(id: string, facultyName?: string): void {
+    const list = loadStorage<Assignment[]>(KEYS.ASSIGNMENTS, INITIAL_ASSIGNMENTS).filter(a => a.id !== id);
+    saveStorage(KEYS.ASSIGNMENTS, list);
+    const subs = loadStorage<Submission[]>(KEYS.SUBMISSIONS, INITIAL_SUBMISSIONS).filter(s => s.assignmentId !== id);
+    saveStorage(KEYS.SUBMISSIONS, subs);
+    if (facultyName) {
+      this.logAudit('Assignment Deleted', facultyName, 'faculty', `Assignment ID ${id}`, 'Deleted coursework task');
+    }
+    apiRequest(`/api/assignments/${id}`, { method: 'DELETE' }).catch(() => {});
+    this.handleRealtimeSync('assignment:deleted', { id });
+  }
+
   static getSubmissions(): Submission[] {
     return loadStorage<Submission[]>(KEYS.SUBMISSIONS, INITIAL_SUBMISSIONS);
   }
@@ -1832,15 +1865,16 @@ export class EduTrackApi {
   }
 
   static submitAssignment(
-    assignmentIdOrParams: string | { assignmentId: string; studentId: string; studentName: string; rollNumber: string; fileName: string; fileSize: string; notes?: string },
+    assignmentIdOrParams: string | { assignmentId: string; studentId: string; studentName: string; rollNumber: string; fileName: string; fileSize: string; notes?: string; fileData?: string },
     studentId?: string,
     studentName?: string,
     rollNumber?: string,
     fileName?: string,
     fileSize?: string,
-    notes?: string
+    notes?: string,
+    fileData?: string
   ): Submission {
-    let p: { assignmentId: string; studentId: string; studentName: string; rollNumber: string; fileName: string; fileSize: string; notes?: string };
+    let p: { assignmentId: string; studentId: string; studentName: string; rollNumber: string; fileName: string; fileSize: string; notes?: string; fileData?: string };
 
     if (typeof assignmentIdOrParams === 'object') {
       p = assignmentIdOrParams;
@@ -1852,7 +1886,8 @@ export class EduTrackApi {
         rollNumber: rollNumber || '',
         fileName: fileName || 'file.pdf',
         fileSize: fileSize || '1.0 MB',
-        notes: notes || ''
+        notes: notes || '',
+        fileData: fileData || ''
       };
     }
 
@@ -1872,6 +1907,7 @@ export class EduTrackApi {
       submittedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       fileName: p.fileName,
       fileSize: p.fileSize,
+      fileData: p.fileData,
       notes: p.notes,
       status: isLate ? 'late' : 'submitted'
     };
