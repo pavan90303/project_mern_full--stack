@@ -158,7 +158,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const assignments: Assignment[] = EduTrackApi.getAssignments(profile.currentSemester);
   const submissions: Submission[] = EduTrackApi.getSubmissions().filter(s => s.studentId === profile.id);
   const materials: StudyMaterial[] = EduTrackApi.getStudyMaterials(profile.currentSemester);
-  const exams: ExamSchedule[] = EduTrackApi.getExamSchedules(profile.departmentId, profile.currentSemester, true);
+  const [studentExamSemFilter, setStudentExamSemFilter] = useState<number | 'all'>('all');
+  const exams: ExamSchedule[] = EduTrackApi.getExamSchedules(
+    profile.departmentId,
+    studentExamSemFilter === 'all' ? undefined : studentExamSemFilter,
+    true
+  );
   const announcements: Announcement[] = EduTrackApi.getAnnouncements('STUDENTS');
   const internalAssessmentData = EduTrackApi.getAssessmentMarksForStudent(profile.id);
   const readIds = EduTrackApi.getReadNotificationIds();
@@ -2558,13 +2563,36 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         {/* Tab 2: Exam Timetable */}
         {tmTab === 'exam' && (
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 sm:p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-4">
-              Official Examination Schedule
-            </h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Official Examination Schedule - {profile.departmentName}
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Published university semester exam schedules for your department.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-slate-500">Semester:</span>
+                <select
+                  value={studentExamSemFilter}
+                  onChange={(e) => setStudentExamSemFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                  className="py-1 px-2.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none font-medium"
+                >
+                  <option value="all">All Semesters (Showing all published department exams)</option>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
+                    <option key={sem} value={sem}>
+                      Semester {sem} {sem === profile.currentSemester ? '(Your Current Semester)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
             {exams.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-400">
-                No examination dates published for Semester {profile.currentSemester} yet.
+                No examination dates published for {profile.departmentName} {studentExamSemFilter === 'all' ? 'yet' : `(Semester ${studentExamSemFilter})`}.
               </div>
             ) : (
               <>
@@ -2576,9 +2604,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         <span className="font-bold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 rounded text-[11px]">
                           {ex.examDate}
                         </span>
-                        <span className="text-[10px] uppercase font-bold text-slate-500">
-                          {ex.examType}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded text-[10px]">
+                            Sem {ex.semester}
+                          </span>
+                          <span className="text-[10px] uppercase font-bold text-slate-500">
+                            {ex.examType}
+                          </span>
+                        </div>
                       </div>
                       <div>
                         <div className="text-xs font-bold text-slate-900 dark:text-white">
@@ -2601,6 +2634,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       <tr>
                         <th className="py-2.5 px-4 font-semibold">Exam Date</th>
                         <th className="py-2.5 px-4 font-semibold">Timeslot</th>
+                        <th className="py-2.5 px-4 font-semibold">Semester</th>
                         <th className="py-2.5 px-4 font-semibold">Subject Code</th>
                         <th className="py-2.5 px-4 font-semibold">Subject Title</th>
                         <th className="py-2.5 px-4 font-semibold">Hall</th>
@@ -2612,6 +2646,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         <tr key={ex.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                           <td className="py-3 px-4 font-semibold">{ex.examDate}</td>
                           <td className="py-3 px-4 font-mono text-slate-500">{ex.startTime} - {ex.endTime}</td>
+                          <td className="py-3 px-4">
+                            <span className="font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded text-[10px]">
+                              Sem {ex.semester}
+                            </span>
+                          </td>
                           <td className="py-3 px-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">{ex.subjectCode}</td>
                           <td className="py-3 px-4 text-slate-800 dark:text-slate-200">{ex.subjectName}</td>
                           <td className="py-3 px-4 font-medium">{ex.room}</td>

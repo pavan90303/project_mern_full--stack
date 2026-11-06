@@ -1406,12 +1406,33 @@ export class EduTrackApi {
   }
 
   // --- TIMETABLES & CONFLICT ENGINE ---
-  static getClassTimetables(departmentId?: string, semester?: number, section?: string): TimetableEntry[] {
+  static getClassTimetables(departmentId?: string, semester?: number | string, section?: string): TimetableEntry[] {
     const list = loadStorage<TimetableEntry[]>(KEYS.CLASS_TIMETABLE, INITIAL_TIMETABLE);
+
+    // Background sync from backend API so all clients/browsers have up-to-date timetables
+    apiRequest<TimetableEntry[]>('/api/timetable/class').then(res => {
+      if (res && Array.isArray(res) && res.length > 0) {
+        saveStorage(KEYS.CLASS_TIMETABLE, res);
+      }
+    }).catch(() => {});
+
+    let sem: number | undefined = undefined;
+    if (typeof semester === 'number') sem = semester;
+    else if (typeof semester === 'string' && semester !== 'all' && semester.trim() !== '') sem = Number(semester);
+
     return list.filter(t => {
-      if (departmentId && departmentId !== 'all' && t.departmentId !== departmentId) return false;
-      if (semester && t.semester !== semester) return false;
-      if (section && section !== 'all' && t.section !== section) return false;
+      if (departmentId && departmentId !== 'all') {
+        const matchesDept = t.departmentId === departmentId || 
+          (t.departmentName && (
+            t.departmentName.toLowerCase().includes(departmentId.toLowerCase()) ||
+            departmentId.toLowerCase().includes(t.departmentName.toLowerCase())
+          ));
+        if (!matchesDept) return false;
+      }
+      if (sem && t.semester !== sem) return false;
+      if (section && section !== 'all') {
+        if (!isMatchingSection(t.section, section)) return false;
+      }
       return true;
     });
   }
@@ -1475,7 +1496,7 @@ export class EduTrackApi {
               reason: `Faculty Double-Booking: Instructor is already assigned to lecture in ${item.room} on ${candidate.dayOfWeek} (${item.startTime} - ${item.endTime}).`
             };
           }
-          if (item.departmentId === candidate.departmentId && item.semester === candidate.semester && item.section === candidate.section) {
+          if (item.departmentId === candidate.departmentId && item.semester === candidate.semester && isMatchingSection(item.section, candidate.section)) {
             return {
               hasConflict: true,
               reason: `Cohort Collision: Semester ${candidate.semester} Section ${candidate.section} already has ${item.subjectCode} scheduled at this period.`
@@ -1503,10 +1524,17 @@ export class EduTrackApi {
     saveStorage(KEYS.CLASS_TIMETABLE, list);
     this.logAudit('Timetable Entry Created', adminName || 'Admin', 'admin', `Room ${newEntry.room}`, `Scheduled ${newEntry.subjectCode} on ${newEntry.dayOfWeek} (${newEntry.startTime}-${newEntry.endTime})`);
 
-    apiRequest('/api/timetable/class', {
+    apiRequest<TimetableEntry>('/api/timetable/class', {
       method: 'POST',
       body: JSON.stringify(entry)
+    }).then(res => {
+      if (res && res.id) {
+        newEntry.id = res.id;
+        saveStorage(KEYS.CLASS_TIMETABLE, list);
+      }
     }).catch(() => {});
+
+    this.handleRealtimeSync('timetable:updated', { type: 'class', entry: newEntry });
 
     return { success: true, entry: newEntry };
   }
@@ -1520,6 +1548,7 @@ export class EduTrackApi {
     saveStorage(KEYS.CLASS_TIMETABLE, list);
     this.logAudit('Timetable Entry Removed', adminName || 'Admin', 'admin', `Slot ${id}`, 'Deleted class period');
     apiRequest(`/api/timetable/class/${id}`, { method: 'DELETE' }).catch(() => {});
+    this.handleRealtimeSync('timetable:updated', { type: 'class', deletedId: id });
   }
 
   static deleteClassTimetableEntry(id: string, adminName?: string) {
@@ -2246,7 +2275,7 @@ export class EduTrackApi {
   ): ExamSchedule[] {
     let sem: number | undefined = undefined;
     if (typeof semester === 'number') sem = semester;
-    else if (typeof semester === 'string' && semester !== 'all') sem = Number(semester);
+    else if (typeof semester === 'string' && semester !== 'all' && semester.trim() !== '') sem = Number(semester);
 
     let sec: string | undefined = undefined;
     let published = publishedOnly;
@@ -2258,11 +2287,28 @@ export class EduTrackApi {
     }
 
     const all = loadStorage<ExamSchedule[]>(KEYS.EXAMS, INITIAL_EXAM_SCHEDULES);
+
+    // Background fetch from server so student views update dynamically with admin schedules
+    apiRequest<ExamSchedule[]>('/api/timetable/exams').then(res => {
+      if (res && Array.isArray(res) && res.length > 0) {
+        saveStorage(KEYS.EXAMS, res);
+      }
+    }).catch(() => {});
+
     return all.filter(e => {
       if (published && !e.isPublished) return false;
-      if (departmentId && departmentId !== 'all' && e.departmentId !== departmentId) return false;
+      if (departmentId && departmentId !== 'all') {
+        const matchDept = e.departmentId === departmentId ||
+          (e.departmentName && (
+            e.departmentName.toLowerCase().includes(departmentId.toLowerCase()) ||
+            departmentId.toLowerCase().includes(e.departmentName.toLowerCase())
+          ));
+        if (!matchDept) return false;
+      }
       if (sem && e.semester !== sem) return false;
-      if (sec && sec !== 'all' && e.section !== sec) return false;
+      if (sec && sec !== 'all') {
+        if (!isMatchingSection(e.section, sec)) return false;
+      }
       return true;
     });
   }
@@ -2297,7 +2343,7 @@ export class EduTrackApi {
           if (
             exam.departmentId === candidate.departmentId &&
             exam.semester === candidate.semester &&
-            exam.section === candidate.section
+            isMatchingSection(exam.section, candidate.section)
           ) {
             return {
               hasClash: true,
@@ -2335,10 +2381,17 @@ export class EduTrackApi {
     saveStorage(KEYS.EXAMS, list);
     this.logAudit('Exam Schedule Created', adminName || 'Admin', 'admin', `Exam: ${newExam.subjectCode}`, `Room: ${newExam.room}, Date: ${newExam.examDate}`);
 
-    apiRequest('/api/timetable/exams', {
+    apiRequest<ExamSchedule>('/api/timetable/exams', {
       method: 'POST',
       body: JSON.stringify(exam)
+    }).then(res => {
+      if (res && res.id) {
+        newExam.id = res.id;
+        saveStorage(KEYS.EXAMS, list);
+      }
     }).catch(() => {});
+
+    this.handleRealtimeSync('exam_timetable:updated', newExam);
 
     return { success: true, schedule: newExam };
   }
@@ -2358,6 +2411,7 @@ export class EduTrackApi {
     );
 
     apiRequest(`/api/timetable/exams/${id}/publish`, { method: 'PUT' }).catch(() => {});
+    this.handleRealtimeSync('exam_timetable:updated', list[idx]);
 
     return list[idx];
   }
@@ -2366,6 +2420,8 @@ export class EduTrackApi {
     const list = loadStorage<ExamSchedule[]>(KEYS.EXAMS, INITIAL_EXAM_SCHEDULES).filter(e => e.id !== id);
     saveStorage(KEYS.EXAMS, list);
     this.logAudit('Exam Schedule Deleted', adminName || 'Admin', 'admin', `Exam ID ${id}`, 'Deleted exam schedule');
+    apiRequest(`/api/timetable/exams/${id}`, { method: 'DELETE' }).catch(() => {});
+    this.handleRealtimeSync('exam_timetable:deleted', { id });
   }
 
   // --- ANNOUNCEMENTS ---

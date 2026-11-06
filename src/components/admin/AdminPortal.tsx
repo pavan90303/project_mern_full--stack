@@ -161,9 +161,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Class Timetable state
   const [classDeptFilter, setClassDeptFilter] = useState(departments[0]?.id || 'all');
-  const [classSemFilter, setClassSemFilter] = useState<number>(1);
-  const [classSecFilter, setClassSecFilter] = useState<string>('CSE-A');
+  const [classSemFilter, setClassSemFilter] = useState<number | 'all'>('all');
+  const [classSecFilter, setClassSecFilter] = useState<string>('all');
   const [showAddClassModal, setShowAddClassModal] = useState(false);
+  const [ttDeptId, setTtDeptId] = useState(departments[0]?.id || '');
+  const [ttSem, setTtSem] = useState<number>(1);
+  const [ttSec, setTtSec] = useState<string>('A');
   const [ttDay, setTtDay] = useState<'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday'>('Monday');
   const [ttStartTime, setTtStartTime] = useState('09:00 AM');
   const [ttEndTime, setTtEndTime] = useState('10:00 AM');
@@ -465,6 +468,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     e.preventDefault();
     setTtConflictError(null);
 
+    const targetDeptId = ttDeptId || (classDeptFilter !== 'all' ? classDeptFilter : (departments[0]?.id || ''));
+    const deptObj = departments.find(d => d.id === targetDeptId);
     const sub = allSubjects.find(s => s.code === ttSubjectCode);
     const faculty = allFaculty.find(f => f.userId === ttFacultyId);
     const facultyUser = allUsers.find(u => u.id === ttFacultyId);
@@ -476,9 +481,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       subjectId: sub ? sub.id : `sub_${Date.now()}`,
       subjectCode: ttSubjectCode,
       subjectName: sub ? sub.name : ttSubjectCode,
-      departmentId: classDeptFilter === 'all' ? (departments[0]?.id || '') : classDeptFilter,
-      semester: classSemFilter,
-      section: classSecFilter,
+      departmentId: targetDeptId,
+      departmentName: deptObj ? deptObj.name : 'Engineering',
+      semester: ttSem,
+      section: ttSec,
       room: ttRoom,
       facultyId: ttFacultyId,
       facultyName: facultyUser ? facultyUser.name : 'Assigned Faculty'
@@ -489,6 +495,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       return;
     }
 
+    setRefreshKey(k => k + 1);
     setShowAddClassModal(false);
   };
 
@@ -496,12 +503,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     e.preventDefault();
     setExamClashError(null);
 
-    const dept = departments.find(d => d.id === examDeptFilter);
+    const targetDeptId = examDeptFilter === 'all' ? (departments[0]?.id || '') : examDeptFilter;
+    const dept = departments.find(d => d.id === targetDeptId);
     const res = EduTrackApi.createExamSchedule({
-      departmentId: examDeptFilter === 'all' ? (departments[0]?.id || '') : examDeptFilter,
+      departmentId: targetDeptId,
       departmentName: dept ? dept.name : 'Department',
       semester: examSemFilter,
-      section: 'A',
+      section: 'All',
       academicYear: '2026-2027',
       examType: 'Mid-Term Exam',
       subjectId: `sub_${examSubjectCode.toLowerCase()}`,
@@ -520,6 +528,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       return;
     }
 
+    setRefreshKey(k => k + 1);
     setShowCreateExamModal(false);
   };
 
@@ -2250,8 +2259,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   if (currentPage === 'class-timetable') {
     const filteredTimetables = EduTrackApi.getClassTimetables(
       classDeptFilter === 'all' ? undefined : classDeptFilter,
-      classSemFilter,
-      classSecFilter
+      classSemFilter === 'all' ? undefined : classSemFilter,
+      classSecFilter === 'all' ? undefined : classSecFilter
     );
 
     return (
@@ -2272,6 +2281,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 return;
               }
               setTtConflictError(null);
+              const initialDept = classDeptFilter === 'all' ? (departments[0]?.id || '') : classDeptFilter;
+              setTtDeptId(initialDept);
+              setTtSem(typeof classSemFilter === 'number' ? classSemFilter : 1);
+              const deptSecs = allSections.filter(s => s.departmentId === initialDept);
+              setTtSec(classSecFilter !== 'all' ? classSecFilter : (deptSecs[0]?.name || 'A'));
               setShowAddClassModal(true);
             }}
             className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm flex items-center gap-1.5"
@@ -2288,7 +2302,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               <span className="text-[11px] font-semibold text-slate-500 block mb-1">Department:</span>
               <select
                 value={classDeptFilter}
-                onChange={(e) => setClassDeptFilter(e.target.value)}
+                onChange={(e) => {
+                  setClassDeptFilter(e.target.value);
+                  setClassSecFilter('all');
+                }}
                 className="py-1.5 px-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none font-medium"
               >
                 <option value="all">All Departments</option>
@@ -2300,24 +2317,32 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
             <div>
               <span className="text-[11px] font-semibold text-slate-500 block mb-1">Semester:</span>
-              <input
-                type="number"
-                min={1}
-                max={8}
+              <select
                 value={classSemFilter}
-                onChange={(e) => setClassSemFilter(Number(e.target.value))}
-                className="py-1.5 px-3 text-xs w-24 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none font-medium"
-              />
+                onChange={(e) => setClassSemFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                className="py-1.5 px-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none font-medium"
+              >
+                <option value="all">All Semesters</option>
+                {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
+                  <option key={sem} value={sem}>Semester {sem}</option>
+                ))}
+              </select>
             </div>
 
             <div>
               <span className="text-[11px] font-semibold text-slate-500 block mb-1">Section:</span>
-              <input
-                type="text"
+              <select
                 value={classSecFilter}
                 onChange={(e) => setClassSecFilter(e.target.value)}
-                className="py-1.5 px-3 text-xs w-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none font-medium"
-              />
+                className="py-1.5 px-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none font-medium font-mono"
+              >
+                <option value="all">All Sections</option>
+                {allSections
+                  .filter(s => classDeptFilter === 'all' || s.departmentId === classDeptFilter)
+                  .map(sec => (
+                    <option key={sec.id} value={sec.name}>Section {sec.name}</option>
+                  ))}
+              </select>
             </div>
           </div>
         </div>
@@ -2363,6 +2388,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         onClick={() => {
                           if (confirm(`Remove class period for ${slot.subjectCode}?`)) {
                             EduTrackApi.deleteClassTimetableEntry(slot.id, currentUser.name);
+                            setRefreshKey(k => k + 1);
                           }
                         }}
                         className="px-2.5 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded flex items-center gap-1 transition-colors min-h-[36px]"
@@ -2404,6 +2430,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             onClick={() => {
                               if (confirm(`Remove class period for ${slot.subjectCode}?`)) {
                                 EduTrackApi.deleteClassTimetableEntry(slot.id, currentUser.name);
+                                setRefreshKey(k => k + 1);
                               }
                             }}
                             className="text-slate-400 hover:text-rose-600 p-1"
@@ -2526,32 +2553,63 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Department</label>
+                  <select
+                    value={ttDeptId}
+                    onChange={(e) => {
+                      const newDept = e.target.value;
+                      setTtDeptId(newDept);
+                      const targetSecs = allSections.filter(s => s.departmentId === newDept);
+                      if (targetSecs.length > 0) {
+                        setTtSec(targetSecs[0].name);
+                      }
+                    }}
+                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none font-medium"
+                  >
+                    {departments.map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Section</label>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Semester</label>
                     <select
-                      value={classSecFilter}
-                      onChange={(e) => setClassSecFilter(e.target.value)}
-                      className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none font-mono"
-                    >
-                      {allSections
-                        .filter(s => classDeptFilter === 'all' || s.departmentId === classDeptFilter)
-                        .map(sec => (
-                          <option key={sec.id} value={sec.name}>{sec.name}</option>
-                        ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Semester</label>
-                    <select
-                      value={classSemFilter}
-                      onChange={(e) => setClassSemFilter(Number(e.target.value))}
+                      value={ttSem}
+                      onChange={(e) => setTtSem(Number(e.target.value))}
                       className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none"
                     >
                       {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
                         <option key={sem} value={sem}>Semester {sem}</option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Section</label>
+                    {allSections.filter(s => s.departmentId === ttDeptId).length > 0 ? (
+                      <select
+                        value={ttSec}
+                        onChange={(e) => setTtSec(e.target.value)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none font-mono"
+                      >
+                        {allSections
+                          .filter(s => s.departmentId === ttDeptId)
+                          .map(sec => (
+                            <option key={sec.id} value={sec.name}>Section {sec.name}</option>
+                          ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        required
+                        value={ttSec}
+                        onChange={(e) => setTtSec(e.target.value)}
+                        placeholder="e.g. A"
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none font-mono"
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -2564,9 +2622,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none"
                     >
                       <option value="">-- Choose Subject --</option>
-                      {allSubjects.map(s => (
-                        <option key={s.id} value={s.code}>{s.code} - {s.name}</option>
-                      ))}
+                      {allSubjects
+                        .filter(s => !ttDeptId || s.departmentId === ttDeptId)
+                        .map(s => (
+                          <option key={s.id} value={s.code}>{s.code} - {s.name} (Sem {s.semester})</option>
+                        ))}
                     </select>
                   </div>
                   <div>
@@ -2580,7 +2640,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       {allFaculty.map(f => {
                         const u = allUsers.find(user => user.id === f.userId);
                         return (
-                          <option key={f.userId} value={f.userId}>{u?.name || f.employeeId}</option>
+                          <option key={f.userId} value={f.userId}>{u?.name || f.employeeId} ({f.departmentName})</option>
                         );
                       })}
                     </select>
@@ -2680,7 +2740,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                     <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
                       <button
-                        onClick={() => EduTrackApi.togglePublishExam(ex.id, currentUser.name)}
+                        onClick={() => {
+                          EduTrackApi.togglePublishExam(ex.id, currentUser.name);
+                          setRefreshKey(k => k + 1);
+                        }}
                         className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold transition-colors min-h-[36px] ${
                           ex.isPublished
                             ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
@@ -2695,6 +2758,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         onClick={() => {
                           if (confirm(`Delete exam schedule for ${ex.subjectCode}?`)) {
                             EduTrackApi.deleteExamSchedule(ex.id, currentUser.name);
+                            setRefreshKey(k => k + 1);
                           }
                         }}
                         className="px-2.5 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded flex items-center gap-1 transition-colors min-h-[36px]"
@@ -2739,7 +2803,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <td className="py-3 px-4 text-slate-500">{ex.examType}</td>
                         <td className="py-3 px-4">
                           <button
-                            onClick={() => EduTrackApi.togglePublishExam(ex.id, currentUser.name)}
+                            onClick={() => {
+                              EduTrackApi.togglePublishExam(ex.id, currentUser.name);
+                              setRefreshKey(k => k + 1);
+                            }}
                             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
                               ex.isPublished
                                 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
@@ -2755,6 +2822,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             onClick={() => {
                               if (confirm(`Delete exam schedule for ${ex.subjectCode}?`)) {
                                 EduTrackApi.deleteExamSchedule(ex.id, currentUser.name);
+                                setRefreshKey(k => k + 1);
                               }
                             }}
                             className="text-slate-400 hover:text-rose-600 p-1"

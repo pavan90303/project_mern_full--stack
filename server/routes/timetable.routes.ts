@@ -1,5 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { dbStore } from '../store/storage';
+import { isDbConnected } from '../db/connection';
+import { TimetableEntryModel, ExamScheduleModel } from '../models';
+import { isMatchingDepartment, isMatchingSection } from './onlineExam.routes';
 import { emitToCohort, emitToFaculty, emitToRole } from '../socket';
 
 const router = Router();
@@ -135,19 +138,19 @@ function checkTimetableOverlap(
 }
 
 // GET /api/timetable/class
-router.get('/class', (req: Request, res: Response) => {
+router.get('/class', async (req: Request, res: Response) => {
   const { departmentId, semester, section, facultyId } = req.query;
   const data = dbStore.getData();
 
-  let list = data.classTimetable;
+  let list = data.classTimetable || [];
   if (departmentId && departmentId !== 'all') {
-    list = list.filter(t => t.departmentId === departmentId);
+    list = list.filter(t => t.departmentId === departmentId || isMatchingDepartment(t.departmentId, String(departmentId)));
   }
-  if (semester) {
+  if (semester && String(semester) !== 'all') {
     list = list.filter(t => t.semester === Number(semester));
   }
   if (section && section !== 'all') {
-    list = list.filter(t => t.section.toUpperCase() === (section as string).toUpperCase());
+    list = list.filter(t => isMatchingSection(t.section, String(section)));
   }
   if (facultyId) {
     list = list.filter(t => t.facultyId === facultyId);
@@ -165,18 +168,15 @@ router.post('/class/validate', (req: Request, res: Response) => {
 });
 
 // POST /api/timetable/class
-router.post('/class', (req: Request, res: Response) => {
-  const { dayOfWeek, startTime, endTime, subjectId, departmentId, semester, section, room, facultyId } = req.body;
-  if (!dayOfWeek || !startTime || !endTime || !subjectId || !room) {
+router.post('/class', async (req: Request, res: Response) => {
+  const { dayOfWeek, startTime, endTime, subjectId, subjectCode, subjectName, departmentId, departmentName, semester, section, room, facultyId, facultyName } = req.body;
+  if (!dayOfWeek || !startTime || !endTime || !room) {
     return res.status(400).json({ error: 'All timetable slot details are required.' });
   }
 
   const data = dbStore.getData();
-  const subject = data.subjects.find(s => s.id === subjectId || s.code === subjectId);
-  if (!subject) {
-    return res.status(404).json({ error: 'Selected subject does not exist.' });
-  }
-
+  const subject = data.subjects.find(s => s.id === subjectId || s.code === subjectId || (subjectCode && s.code === subjectCode));
+  const dept = data.departments.find(d => d.id === departmentId || isMatchingDepartment(d.id, departmentId) || (departmentName && d.name.toLowerCase() === departmentName.toLowerCase()));
   const facultyUser = data.users.find(u => u.id === facultyId);
 
   const startNorm = normalizeTo24Hour(startTime);
@@ -189,10 +189,10 @@ router.post('/class', (req: Request, res: Response) => {
       endTime: endNorm,
       room,
       facultyId: facultyId || '',
-      departmentId: departmentId || subject.departmentId,
-      semester: Number(semester) || subject.semester,
+      departmentId: departmentId || (dept ? dept.id : (subject ? subject.departmentId : 'dept_cse')),
+      semester: Number(semester) || (subject ? subject.semester : 1),
       section: section || 'A',
-      subjectId: subject.id
+      subjectId: subject ? subject.id : (subjectId || `sub_${Date.now()}`)
     },
     data.classTimetable,
     data.subjects
@@ -207,27 +207,36 @@ router.post('/class', (req: Request, res: Response) => {
     dayOfWeek,
     startTime: startNorm,
     endTime: endNorm,
-    subjectId: subject.id,
-    subjectCode: subject.code,
-    subjectName: subject.name,
-    departmentId: departmentId || subject.departmentId,
-    semester: Number(semester) || subject.semester,
+    subjectId: subject ? subject.id : (subjectId || `sub_${Date.now()}`),
+    subjectCode: subject ? subject.code : (subjectCode || 'SUB101'),
+    subjectName: subject ? subject.name : (subjectName || subjectCode || 'Class Period'),
+    departmentId: departmentId || (dept ? dept.id : (subject ? subject.departmentId : 'dept_cse')),
+    departmentName: dept ? dept.name : (departmentName || subject?.departmentName || 'Engineering'),
+    semester: Number(semester) || (subject ? subject.semester : 1),
     section: section || 'A',
     room,
-    facultyId: facultyId || (subject.assignedFacultyId || ''),
-    facultyName: facultyUser ? facultyUser.name : (subject.assignedFacultyName || 'Assigned Professor'),
+    facultyId: facultyId || (subject?.assignedFacultyId || ''),
+    facultyName: facultyName || (facultyUser ? facultyUser.name : (subject?.assignedFacultyName || 'Assigned Faculty')),
     isPublished: true
   };
 
   data.classTimetable.push(newEntry);
   dbStore.save();
 
+  if (isDbConnected()) {
+    try {
+      await TimetableEntryModel.findOneAndUpdate(
+        { id: newEntry.id },
+        newEntry,
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).catch(() => {});
+    } catch {}
+  }
+
   emitToCohort(newEntry.departmentId, newEntry.semester, newEntry.section, 'timetable:updated', { type: 'class', entry: newEntry });
   if (newEntry.facultyId) {
     emitToFaculty(newEntry.facultyId, 'timetable:updated', { type: 'class', entry: newEntry });
   }
-  emitToRole('student', 'timetable:updated', { type: 'class', entry: newEntry });
-  emitToRole('faculty', 'timetable:updated', { type: 'class', entry: newEntry });
   emitToRole('student', 'timetable:updated', { type: 'class', entry: newEntry });
   emitToRole('faculty', 'timetable:updated', { type: 'class', entry: newEntry });
 
@@ -237,12 +246,18 @@ router.post('/class', (req: Request, res: Response) => {
 });
 
 // DELETE /api/timetable/class/:id
-router.delete('/class/:id', (req: Request, res: Response) => {
+router.delete('/class/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const data = dbStore.getData();
   const entry = data.classTimetable.find(t => t.id === id);
   data.classTimetable = data.classTimetable.filter(t => t.id !== id);
   dbStore.save();
+
+  if (isDbConnected()) {
+    try {
+      await TimetableEntryModel.deleteOne({ id }).catch(() => {});
+    } catch {}
+  }
 
   if (entry) {
     emitToCohort(entry.departmentId, entry.semester, entry.section, 'timetable:updated', { type: 'class', deletedId: id });
@@ -258,37 +273,37 @@ router.delete('/class/:id', (req: Request, res: Response) => {
 });
 
 // GET /api/timetable/exams
-router.get('/exams', (req: Request, res: Response) => {
+router.get('/exams', async (req: Request, res: Response) => {
   const { departmentId, semester, section, publishedOnly } = req.query;
   const data = dbStore.getData();
 
-  let list = data.examSchedules;
+  let list = data.examSchedules || [];
   if (publishedOnly === 'true') {
     list = list.filter(e => e.isPublished);
   }
   if (departmentId && departmentId !== 'all') {
-    list = list.filter(e => e.departmentId === departmentId);
+    list = list.filter(e => e.departmentId === departmentId || isMatchingDepartment(e.departmentId, String(departmentId)));
   }
-  if (semester) {
+  if (semester && String(semester) !== 'all') {
     list = list.filter(e => e.semester === Number(semester));
   }
   if (section && section !== 'all') {
-    list = list.filter(e => e.section === section);
+    list = list.filter(e => isMatchingSection(e.section, String(section)));
   }
 
   return res.json(list);
 });
 
 // POST /api/timetable/exams
-router.post('/exams', (req: Request, res: Response) => {
-  const { departmentId, semester, section, examType, subjectId, examDate, startTime, endTime, room, instructions } = req.body;
-  if (!examDate || !startTime || !endTime || !subjectId || !room) {
+router.post('/exams', async (req: Request, res: Response) => {
+  const { departmentId, departmentName, semester, section, examType, subjectId, subjectCode, subjectName, examDate, startTime, endTime, room, instructions } = req.body;
+  if (!examDate || !startTime || !endTime || !room) {
     return res.status(400).json({ error: 'Date, timeslot, subject, and room are required.' });
   }
 
   const data = dbStore.getData();
-  const subject = data.subjects.find(s => s.id === subjectId);
-  const dept = data.departments.find(d => d.id === departmentId);
+  const subject = data.subjects.find(s => s.id === subjectId || (subjectCode && s.code === subjectCode));
+  const dept = data.departments.find(d => d.id === departmentId || (departmentName && d.name.toLowerCase() === departmentName.toLowerCase()) || isMatchingDepartment(d.id, departmentId));
 
   const clash = data.examSchedules.find(e => {
     if (e.examDate === examDate) {
@@ -296,7 +311,7 @@ router.post('/exams', (req: Request, res: Response) => {
                       (startTime < e.endTime && endTime >= e.endTime);
       if (overlap) {
         if (e.room.toLowerCase().trim() === room.toLowerCase().trim()) return true;
-        if (e.departmentId === departmentId && e.semester === Number(semester)) return true;
+        if (isMatchingDepartment(e.departmentId, departmentId) && e.semester === Number(semester) && isMatchingSection(e.section, section)) return true;
       }
     }
     return false;
@@ -309,14 +324,14 @@ router.post('/exams', (req: Request, res: Response) => {
   const newExam = {
     id: `exam_${Date.now()}`,
     departmentId: departmentId || (dept ? dept.id : 'dept_cse'),
-    departmentName: dept ? dept.name : 'Engineering',
+    departmentName: departmentName || (dept ? dept.name : 'Engineering'),
     semester: Number(semester) || 1,
-    section: section || 'A',
+    section: section || 'All',
     academicYear: '2026-2027',
     examType: examType || 'End-Semester Final',
-    subjectId,
-    subjectCode: subject ? subject.code : 'EXAM101',
-    subjectName: subject ? subject.name : 'Final Examination',
+    subjectId: subject ? subject.id : (subjectId || `sub_${Date.now()}`),
+    subjectCode: subject ? subject.code : (subjectCode || 'EXAM101'),
+    subjectName: subject ? subject.name : (subjectName || 'Final Examination'),
     examDate,
     startTime,
     endTime,
@@ -328,6 +343,16 @@ router.post('/exams', (req: Request, res: Response) => {
   data.examSchedules.push(newExam);
   dbStore.save();
 
+  if (isDbConnected()) {
+    try {
+      await ExamScheduleModel.findOneAndUpdate(
+        { id: newExam.id },
+        newExam,
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).catch(() => {});
+    } catch {}
+  }
+
   emitToCohort(newExam.departmentId, newExam.semester, newExam.section, 'exam_timetable:updated', newExam);
   emitToRole('student', 'exam_timetable:updated', newExam);
   emitToRole('faculty', 'exam_timetable:updated', newExam);
@@ -337,8 +362,32 @@ router.post('/exams', (req: Request, res: Response) => {
   return res.status(201).json(newExam);
 });
 
+// DELETE /api/timetable/exams/:id
+router.delete('/exams/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const data = dbStore.getData();
+  const exam = data.examSchedules.find(e => e.id === id);
+  data.examSchedules = data.examSchedules.filter(e => e.id !== id);
+  dbStore.save();
+
+  if (isDbConnected()) {
+    try {
+      await ExamScheduleModel.deleteOne({ id }).catch(() => {});
+    } catch {}
+  }
+
+  if (exam) {
+    emitToCohort(exam.departmentId, exam.semester, exam.section, 'exam_timetable:deleted', { id });
+  }
+  emitToRole('student', 'exam_timetable:deleted', { id });
+  emitToRole('faculty', 'exam_timetable:deleted', { id });
+
+  dbStore.logAudit('Exam Schedule Deleted', (req as any).user?.name || 'Admin', 'admin', `Exam ID ${id}`, 'Deleted exam schedule');
+  return res.json({ message: 'Exam schedule deleted successfully' });
+});
+
 // PUT /api/timetable/exams/:id/publish
-router.put('/exams/:id/publish', (req: Request, res: Response) => {
+router.put('/exams/:id/publish', async (req: Request, res: Response) => {
   const { id } = req.params;
   const data = dbStore.getData();
   const exam = data.examSchedules.find(e => e.id === id);
@@ -348,6 +397,15 @@ router.put('/exams/:id/publish', (req: Request, res: Response) => {
 
   exam.isPublished = !exam.isPublished;
   dbStore.save();
+
+  if (isDbConnected()) {
+    try {
+      await ExamScheduleModel.findOneAndUpdate(
+        { id: exam.id },
+        { isPublished: exam.isPublished }
+      ).catch(() => {});
+    } catch {}
+  }
 
   emitToCohort(exam.departmentId, exam.semester, exam.section, 'exam_timetable:updated', exam);
   emitToRole('student', 'exam_timetable:updated', exam);
