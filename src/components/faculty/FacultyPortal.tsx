@@ -214,8 +214,9 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
   const [attMatTab, setAttMatTab] = useState<'attendance' | 'materials'>('attendance');
   const [selectedSubjectCode, setSelectedSubjectCode] = useState<string>(assignedSubjects[0]?.code || '');
   const [selectedSection, setSelectedSection] = useState<string>(effectiveSections[0] || 'CSE-A');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [studentAttendanceMap, setStudentAttendanceMap] = useState<Record<string, 'present' | 'absent' | 'late'>>({});
+  const todayDateOnly = new Date().toISOString().split('T')[0];
+  const [selectedDate, setSelectedDate] = useState<string>(todayDateOnly);
+  const [studentAttendanceMap, setStudentAttendanceMap] = useState<Record<string, 'present' | 'absent'>>({});
   const [attendanceSavedMessage, setAttendanceSavedMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -756,10 +757,10 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
 
     const records = enrolledStudents.map(std => {
       const user = allUsers.find(u => u.id === std.userId);
-      const status = studentAttendanceMap[std.id] || 'present';
+      const status = studentAttendanceMap[std.id] === 'absent' ? 'absent' : 'present';
       return {
         studentId: std.id,
-        studentName: user ? user.name : 'Student',
+        studentName: user ? user.name : (std.name || 'Student'),
         rollNumber: std.rollNumber,
         status
       };
@@ -771,7 +772,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
       departmentId: sub ? sub.departmentId : '',
       semester: sub ? sub.semester : 1,
       section: selectedSection,
-      date: selectedDate,
+      date: todayDateOnly,
       timeSlot: 'Regular Period',
       facultyId: currentUser.id,
       records
@@ -1701,12 +1702,16 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                 </div>
 
                 <div className="w-full sm:w-auto">
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">Session Date</label>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">Session Date (Today Only)</label>
                   <input
                     type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="w-full sm:w-auto py-2 sm:py-1.5 px-3 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none font-medium min-h-[42px] sm:min-h-0"
+                    value={todayDateOnly}
+                    min={todayDateOnly}
+                    max={todayDateOnly}
+                    readOnly
+                    disabled
+                    className="w-full sm:w-auto py-2 sm:py-1.5 px-3 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none font-semibold text-slate-700 dark:text-slate-200 cursor-not-allowed min-h-[42px] sm:min-h-0"
+                    title="Attendance can only be recorded for today's date"
                   />
                 </div>
               </div>
@@ -1714,7 +1719,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
               <div className="flex items-center gap-2 pt-2 sm:pt-0">
                 <button
                   onClick={() => {
-                    const updated: Record<string, 'present' | 'absent' | 'late'> = {};
+                    const updated: Record<string, 'present' | 'absent'> = {};
                     cohortStudents.forEach(s => {
                       updated[s.id] = 'present';
                     });
@@ -1761,13 +1766,13 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                         <div className="flex items-center justify-between">
                           <div>
                             <span className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200">{std.rollNumber}</span>
-                            <h4 className="text-xs font-semibold text-slate-900 dark:text-white mt-0.5">{user?.name || 'Student'}</h4>
+                            <h4 className="text-xs font-semibold text-slate-900 dark:text-white mt-0.5">{user?.name || std.name || (std as any).name || 'Student'}</h4>
                           </div>
                           <span className="text-[11px] text-slate-500">Sem {std.currentSemester} ({std.section})</span>
                         </div>
 
                         {/* Large Touch Buttons */}
-                        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
                           <button
                             type="button"
                             onClick={() => setStudentAttendanceMap(prev => ({ ...prev, [std.id]: 'present' }))}
@@ -1778,17 +1783,6 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                             }`}
                           >
                             Present
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setStudentAttendanceMap(prev => ({ ...prev, [std.id]: 'late' }))}
-                            className={`py-2 text-xs font-bold rounded-lg transition-colors min-h-[40px] flex items-center justify-center ${
-                              currentStatus === 'late'
-                                ? 'bg-amber-500 text-white shadow-xs'
-                                : 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'
-                            }`}
-                          >
-                            Late
                           </button>
                           <button
                             type="button"
@@ -1826,7 +1820,9 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                         return (
                           <tr key={std.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                             <td className="py-2.5 px-4 font-mono font-bold text-slate-800 dark:text-slate-200">{std.rollNumber}</td>
-                            <td className="py-2.5 px-4 font-medium text-slate-900 dark:text-white">{user?.name || 'Student'}</td>
+                            <td className="py-2.5 px-4 font-medium text-slate-900 dark:text-white">
+                              {user?.name || std.name || (std as any).name || 'Student'}
+                            </td>
                             <td className="py-2.5 px-4 text-slate-500">Sem {std.currentSemester} (Sec {std.section})</td>
                             <td className="py-2.5 px-4 text-right">
                               <div className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg">
@@ -1835,12 +1831,6 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                                   className={`px-2.5 py-1 text-[11px] font-semibold rounded ${currentStatus === 'present' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300'}`}
                                 >
                                   Present
-                                </button>
-                                <button
-                                  onClick={() => setStudentAttendanceMap(prev => ({ ...prev, [std.id]: 'late' }))}
-                                  className={`px-2.5 py-1 text-[11px] font-semibold rounded ${currentStatus === 'late' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300'}`}
-                                >
-                                  Late
                                 </button>
                                 <button
                                   onClick={() => setStudentAttendanceMap(prev => ({ ...prev, [std.id]: 'absent' }))}

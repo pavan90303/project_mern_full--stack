@@ -141,6 +141,9 @@ export const TeachingAssignmentSchema = new Schema<ITeachingAssignment>({
 // ================= STUDENT PROFILE MODEL =================
 export interface IStudentProfile extends Document {
   userId: string;
+  name?: string;
+  email?: string;
+  phone?: string;
   rollNumber: string; // Register number starting with 99
   registrationNumber: string; // Register number starting with 99
   departmentId: string;
@@ -158,6 +161,9 @@ export interface IStudentProfile extends Document {
 
 export const StudentProfileSchema = new Schema<IStudentProfile>({
   userId: { type: String, required: true, unique: true, index: true },
+  name: { type: String },
+  email: { type: String },
+  phone: { type: String },
   rollNumber: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
   registrationNumber: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
   departmentId: { type: String, required: true, index: true },
@@ -176,6 +182,9 @@ export const StudentProfileSchema = new Schema<IStudentProfile>({
 // ================= FACULTY PROFILE MODEL =================
 export interface IFacultyProfile extends Document {
   userId: string;
+  name?: string;
+  email?: string;
+  phone?: string;
   employeeId: string;
   designation: string;
   departmentId: string;
@@ -192,6 +201,9 @@ export interface IFacultyProfile extends Document {
 
 export const FacultyProfileSchema = new Schema<IFacultyProfile>({
   userId: { type: String, required: true, unique: true, index: true },
+  name: { type: String },
+  email: { type: String },
+  phone: { type: String },
   employeeId: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
   designation: { type: String, required: true },
   departmentId: { type: String, required: true, index: true },

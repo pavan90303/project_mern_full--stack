@@ -8,9 +8,30 @@ import { StudentProfileModel, UserModel, CourseEnrollmentModel, ExamAttemptModel
 const router = Router();
 
 // GET /api/students
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const { departmentId, semester, section } = req.query;
   const data = dbStore.getData();
+
+  if (isDbConnected()) {
+    try {
+      const dbStudents = await StudentProfileModel.find({}).lean();
+      const dbUsers = await UserModel.find({ role: 'student' }).lean();
+      if (dbStudents && dbStudents.length > 0) {
+        dbStudents.forEach((ds: any) => {
+          const idx = data.students.findIndex(s => s.id === ds.id || s.rollNumber === ds.rollNumber);
+          if (idx !== -1) data.students[idx] = { ...data.students[idx], ...ds };
+          else data.students.push(ds);
+        });
+      }
+      if (dbUsers && dbUsers.length > 0) {
+        dbUsers.forEach((du: any) => {
+          const idx = data.users.findIndex(u => u.id === du.id || u.email === du.email);
+          if (idx !== -1) data.users[idx] = { ...data.users[idx], ...du };
+          else data.users.push(du);
+        });
+      }
+    } catch {}
+  }
 
   let list = data.students;
   if (departmentId && departmentId !== 'all') {
@@ -27,8 +48,8 @@ router.get('/', (req: Request, res: Response) => {
     const user = data.users.find(u => u.id === s.userId);
     return {
       ...s,
-      name: user ? user.name : 'Unknown Student',
-      email: user ? user.email : '',
+      name: user ? user.name : ((s as any).name || 'Unknown Student'),
+      email: user ? user.email : ((s as any).email || ''),
       phone: user ? user.phone : ''
     };
   });
@@ -67,7 +88,7 @@ router.get('/:id', (req: Request, res: Response) => {
 });
 
 // POST /api/students
-router.post('/', (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   const { name, email, rollNumber, departmentId, departmentName, currentSemester, section, phone, academicYear, batch } = req.body;
   if (!name || !email || !departmentId || !currentSemester) {
     return res.status(400).json({ error: 'Name, email, department, and semester are required.' });
@@ -123,6 +144,8 @@ router.post('/', (req: Request, res: Response) => {
   const profile = {
     id: `std_${Date.now()}`,
     userId: user.id,
+    name: name.trim(),
+    email: cleanEmail,
     rollNumber: cleanRoll,
     registrationNumber: cleanRoll,
     departmentId,
@@ -161,6 +184,21 @@ router.post('/', (req: Request, res: Response) => {
   });
 
   dbStore.save();
+
+  if (isDbConnected()) {
+    try {
+      await UserModel.findOneAndUpdate(
+        { id: user.id },
+        user,
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).catch(() => {});
+      await StudentProfileModel.findOneAndUpdate(
+        { rollNumber: profile.rollNumber },
+        profile,
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).catch(() => {});
+    } catch {}
+  }
   dbStore.logAudit('Student Registered', (req as any).user?.name || 'Admin', 'admin', `Student ${name}`, `Register No: ${cleanRoll}, Dept: ${dept.code}, Section: ${targetSection}`);
 
   const { passwordHash: _, ...userSafe } = user;

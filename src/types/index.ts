@@ -19,6 +19,9 @@ export interface User {
 export interface StudentProfile {
   id: string;
   userId: string;
+  name?: string;
+  email?: string;
+  phone?: string;
   rollNumber: string; // Register number starting with 99
   registrationNumber: string; // Register number starting with 99
   departmentId: string;
@@ -38,6 +41,9 @@ export interface StudentProfile {
 export interface FacultyProfile {
   id: string;
   userId: string;
+  name?: string;
+  email?: string;
+  phone?: string;
   employeeId: string;
   designation: string; // e.g., "Associate Professor", "Head of Department"
   departmentId: string;

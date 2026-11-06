@@ -207,7 +207,8 @@ export class EduTrackApi {
         teachingAssignments,
         allEnrollments,
         allResults,
-        onlineExamsList
+        onlineExamsList,
+        serverUsers
       ] = await Promise.all([
         apiRequest<Department[]>('/api/departments'),
         apiRequest<Section[]>('/api/sections'),
@@ -224,8 +225,20 @@ export class EduTrackApi {
         apiRequest<TeachingAssignment[]>('/api/faculty/assignments'),
         apiRequest<CourseEnrollment[]>('/api/students/enrollments/all'),
         apiRequest<AssessmentResult[]>('/api/students/results/all'),
-        apiRequest<OnlineExam[]>('/api/online-exams')
+        apiRequest<OnlineExam[]>('/api/online-exams'),
+        apiRequest<User[]>('/api/auth/users')
       ]);
+
+      if (serverUsers && Array.isArray(serverUsers)) {
+        const localUsers = loadStorage<User[]>(KEYS.USERS, INITIAL_USERS);
+        const mergedUsers = [...serverUsers];
+        localUsers.forEach(lu => {
+          if (!mergedUsers.some(mu => mu.id === lu.id || (mu.email && lu.email && mu.email.toLowerCase() === lu.email.toLowerCase()))) {
+            mergedUsers.push(lu);
+          }
+        });
+        saveStorage(KEYS.USERS, mergedUsers);
+      }
 
       if (depts) saveStorage(KEYS.DEPARTMENTS, depts);
       if (sections) saveStorage(KEYS.SECTIONS, sections);
@@ -239,6 +252,36 @@ export class EduTrackApi {
           }
         });
         saveStorage(KEYS.STUDENTS, mergedStudents);
+
+        // Synchronize student users into KEYS.USERS so they persist permanently
+        const currentUsers = loadStorage<User[]>(KEYS.USERS, INITIAL_USERS);
+        let uChanged = false;
+        mergedStudents.forEach(st => {
+          if (st.name || st.email) {
+            const existingU = currentUsers.find(u => u.id === st.userId || (st.email && u.email && u.email.toLowerCase() === st.email.toLowerCase()));
+            if (!existingU && st.userId) {
+              currentUsers.push({
+                id: st.userId,
+                name: st.name || `Student ${st.rollNumber}`,
+                email: st.email || `${st.rollNumber.toLowerCase()}@university.edu`,
+                role: 'student',
+                status: 'active',
+                createdAt: new Date().toISOString().split('T')[0]
+              });
+              uChanged = true;
+            } else if (existingU) {
+              if (st.name && (!existingU.name || existingU.name === 'Student')) {
+                existingU.name = st.name;
+                uChanged = true;
+              }
+              if (st.email && !existingU.email) {
+                existingU.email = st.email;
+                uChanged = true;
+              }
+            }
+          }
+        });
+        if (uChanged) saveStorage(KEYS.USERS, currentUsers);
       }
       if (facultyList) {
         const localFaculty = loadStorage<FacultyProfile[]>(KEYS.FACULTY, INITIAL_FACULTY);
@@ -249,6 +292,36 @@ export class EduTrackApi {
           }
         });
         saveStorage(KEYS.FACULTY, mergedFaculty);
+
+        // Synchronize faculty users into KEYS.USERS so they persist permanently
+        const currentUsers = loadStorage<User[]>(KEYS.USERS, INITIAL_USERS);
+        let uChanged = false;
+        mergedFaculty.forEach(fc => {
+          if (fc.name || fc.email) {
+            const existingU = currentUsers.find(u => u.id === fc.userId || (fc.email && u.email && u.email.toLowerCase() === fc.email.toLowerCase()));
+            if (!existingU && fc.userId) {
+              currentUsers.push({
+                id: fc.userId,
+                name: fc.name || `Faculty ${fc.employeeId}`,
+                email: fc.email || `${fc.employeeId.toLowerCase()}@university.edu`,
+                role: 'faculty',
+                status: 'active',
+                createdAt: new Date().toISOString().split('T')[0]
+              });
+              uChanged = true;
+            } else if (existingU) {
+              if (fc.name && (!existingU.name || existingU.name === 'Faculty Member')) {
+                existingU.name = fc.name;
+                uChanged = true;
+              }
+              if (fc.email && !existingU.email) {
+                existingU.email = fc.email;
+                uChanged = true;
+              }
+            }
+          }
+        });
+        if (uChanged) saveStorage(KEYS.USERS, currentUsers);
       }
       if (announcements) saveStorage(KEYS.ANNOUNCEMENTS, announcements);
       if (timetable) saveStorage(KEYS.CLASS_TIMETABLE, timetable);
@@ -825,6 +898,8 @@ export class EduTrackApi {
     const newProfile: StudentProfile = {
       id: `std_${Date.now()}`,
       userId: user.id,
+      name: params.name.trim(),
+      email: params.email.trim().toLowerCase(),
       rollNumber: params.rollNumber,
       registrationNumber: `REG-${params.rollNumber}`,
       departmentId: params.departmentId,
@@ -879,6 +954,26 @@ export class EduTrackApi {
     apiRequest<{ user: User; profile: StudentProfile }>('/api/students', {
       method: 'POST',
       body: JSON.stringify(params)
+    }).then(res => {
+      if (res && res.user && res.profile) {
+        const uList = this.getUsers();
+        const uIdx = uList.findIndex(u => u.id === user.id || u.email.toLowerCase() === res.user.email.toLowerCase());
+        if (uIdx !== -1) {
+          uList[uIdx] = { ...uList[uIdx], ...res.user };
+        } else {
+          uList.push(res.user);
+        }
+        saveStorage(KEYS.USERS, uList);
+
+        const sList = this.getAllStudents();
+        const sIdx = sList.findIndex(s => s.id === newProfile.id || s.rollNumber === res.profile.rollNumber);
+        if (sIdx !== -1) {
+          sList[sIdx] = { ...sList[sIdx], ...res.profile };
+        } else {
+          sList.push(res.profile);
+        }
+        saveStorage(KEYS.STUDENTS, sList);
+      }
     }).catch(() => {});
 
     this.logAudit('Student Registered', 'Admin', 'admin', `Student ${params.name}`, `Roll: ${params.rollNumber}, Dept: ${params.departmentName}, Section: ${params.section}`);
@@ -1080,6 +1175,8 @@ export class EduTrackApi {
       profile = {
         id: `fac_${Date.now()}`,
         userId: user.id,
+        name: params.name.trim(),
+        email: cleanEmail,
         employeeId: cleanEmpId,
         designation: params.designation,
         departmentId: params.departmentId,
@@ -1094,6 +1191,8 @@ export class EduTrackApi {
       };
       facultyList.push(profile);
     } else {
+      profile.name = params.name.trim();
+      profile.email = cleanEmail;
       profile.designation = params.designation;
       profile.departmentId = params.departmentId;
       profile.departmentName = params.departmentName;

@@ -8,9 +8,30 @@ import { FacultyProfileModel, UserModel, TeachingAssignmentModel } from '../mode
 const router = Router();
 
 // GET /api/faculty
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const { departmentId } = req.query;
   const data = dbStore.getData();
+
+  if (isDbConnected()) {
+    try {
+      const dbFaculty = await FacultyProfileModel.find({}).lean();
+      const dbUsers = await UserModel.find({ role: 'faculty' }).lean();
+      if (dbFaculty && dbFaculty.length > 0) {
+        dbFaculty.forEach((df: any) => {
+          const idx = data.faculty.findIndex(f => f.id === df.id || f.employeeId === df.employeeId);
+          if (idx !== -1) data.faculty[idx] = { ...data.faculty[idx], ...df };
+          else data.faculty.push(df);
+        });
+      }
+      if (dbUsers && dbUsers.length > 0) {
+        dbUsers.forEach((du: any) => {
+          const idx = data.users.findIndex(u => u.id === du.id || u.email === du.email);
+          if (idx !== -1) data.users[idx] = { ...data.users[idx], ...du };
+          else data.users.push(du);
+        });
+      }
+    } catch {}
+  }
 
   let list = data.faculty;
   if (departmentId && departmentId !== 'all') {
@@ -21,8 +42,8 @@ router.get('/', (req: Request, res: Response) => {
     const user = data.users.find(u => u.id === f.userId);
     return {
       ...f,
-      name: user ? user.name : 'Unknown Faculty',
-      email: user ? user.email : '',
+      name: user ? user.name : ((f as any).name || 'Unknown Faculty'),
+      email: user ? user.email : ((f as any).email || ''),
       phone: user ? user.phone : ''
     };
   });
@@ -83,7 +104,7 @@ router.get('/:id', (req: Request, res: Response) => {
 });
 
 // POST /api/faculty
-router.post('/', (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   const {
     name,
     email,
@@ -179,6 +200,8 @@ router.post('/', (req: Request, res: Response) => {
   const profile = {
     id: `fac_${Date.now()}`,
     userId: user.id,
+    name: name.trim(),
+    email: cleanEmail,
     employeeId: cleanEmpId,
     designation: designation.trim(),
     departmentId,
@@ -231,6 +254,22 @@ router.post('/', (req: Request, res: Response) => {
   });
 
   dbStore.save();
+
+  if (isDbConnected()) {
+    try {
+      await UserModel.findOneAndUpdate(
+        { id: user.id },
+        user,
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).catch(() => {});
+      await FacultyProfileModel.findOneAndUpdate(
+        { employeeId: profile.employeeId },
+        profile,
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).catch(() => {});
+    } catch {}
+  }
+
   dbStore.logAudit('Faculty Registered', (req as any).user?.name || 'Admin', 'admin', `Faculty ${name}`, `ID: ${cleanEmpId}, Dept: ${dept.code}, Sections: ${profile.assignedSections.join(', ')}`);
 
   const { passwordHash: _, ...userSafe } = user;
