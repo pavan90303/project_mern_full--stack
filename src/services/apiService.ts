@@ -918,6 +918,93 @@ export class EduTrackApi {
     return profiles[idx];
   }
 
+  static async deleteStudent(id: string): Promise<boolean> {
+    const profiles = this.getAllStudents();
+    const student = profiles.find(p => p.id === id || p.userId === id);
+    if (!student) return false;
+
+    // Filter from local storage
+    const updatedProfiles = profiles.filter(p => p.id !== student.id && p.userId !== student.userId);
+    saveStorage(KEYS.STUDENTS, updatedProfiles);
+
+    const users = this.getUsers().filter(u => u.id !== student.userId && u.id !== student.id);
+    saveStorage(KEYS.USERS, users);
+
+    // Filter enrollments and exam attempts
+    const enrollments = loadStorage<CourseEnrollment[]>(KEYS.ENROLLMENTS, []).filter(
+      e => e.studentId !== student.id && e.studentId !== student.userId
+    );
+    saveStorage(KEYS.ENROLLMENTS, enrollments);
+
+    const attempts = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, []).filter(
+      a => a.studentId !== student.id && a.studentId !== student.userId
+    );
+    saveStorage(KEYS.EXAM_ATTEMPTS, attempts);
+
+    // Recalculate section & department counts
+    const sections = loadStorage<Section[]>(KEYS.SECTIONS, []);
+    sections.forEach(sec => {
+      sec.enrollmentCount = updatedProfiles.filter(st =>
+        st.departmentId === sec.departmentId && isMatchingSection(st.section, sec.name, sec.sectionCode)
+      ).length;
+    });
+    saveStorage(KEYS.SECTIONS, sections);
+
+    const departments = loadStorage<Department[]>(KEYS.DEPARTMENTS, INITIAL_DEPARTMENTS);
+    departments.forEach(d => {
+      d.totalStudents = updatedProfiles.filter(st => st.departmentId === d.id).length;
+    });
+    saveStorage(KEYS.DEPARTMENTS, departments);
+
+    // Call backend
+    try {
+      await apiRequest(`/api/students/${student.id}`, { method: 'DELETE' });
+    } catch {}
+
+    this.logAudit('Student Removed', 'Admin', 'admin', `Student ${student.rollNumber}`, `Removed student profile ${student.rollNumber}`);
+    this.handleRealtimeSync('student:deleted', { id: student.id, userId: student.userId, sections, departments });
+    return true;
+  }
+
+  static async deleteFaculty(id: string): Promise<boolean> {
+    const facultyList = this.getAllFaculty();
+    const faculty = facultyList.find(f => f.id === id || f.userId === id);
+    if (!faculty) return false;
+
+    // Filter from local storage
+    const updatedFaculty = facultyList.filter(f => f.id !== faculty.id && f.userId !== faculty.userId);
+    saveStorage(KEYS.FACULTY, updatedFaculty);
+
+    const users = this.getUsers().filter(u => u.id !== faculty.userId && u.id !== faculty.id);
+    saveStorage(KEYS.USERS, users);
+
+    // Filter teaching assignments
+    const assignments = this.getTeachingAssignments().filter(
+      ta => ta.facultyId !== faculty.id && ta.facultyId !== faculty.userId
+    );
+    saveStorage(KEYS.TEACHING_ASSIGNMENTS, assignments);
+
+    // Recalculate department counts
+    const departments = loadStorage<Department[]>(KEYS.DEPARTMENTS, INITIAL_DEPARTMENTS);
+    departments.forEach(d => {
+      d.totalFaculty = updatedFaculty.filter(f => f.departmentId === d.id).length;
+      if (d.hodEmail && (faculty as any).email && d.hodEmail.toLowerCase() === (faculty as any).email.toLowerCase()) {
+        d.hodName = '';
+        d.hodEmail = '';
+      }
+    });
+    saveStorage(KEYS.DEPARTMENTS, departments);
+
+    // Call backend
+    try {
+      await apiRequest(`/api/faculty/${faculty.id}`, { method: 'DELETE' });
+    } catch {}
+
+    this.logAudit('Faculty Removed', 'Admin', 'admin', `Faculty ${faculty.employeeId}`, `Removed faculty member ${faculty.employeeId}`);
+    this.handleRealtimeSync('faculty:deleted', { id: faculty.id, userId: faculty.userId, departments });
+    return true;
+  }
+
   // --- FACULTY & PROFILES ---
   static getAllFaculty(): FacultyProfile[] {
     const list = loadStorage<FacultyProfile[]>(KEYS.FACULTY, INITIAL_FACULTY);
@@ -2613,6 +2700,34 @@ export class EduTrackApi {
               d.totalStudents = list.filter(st => st.departmentId === d.id).length;
             });
             saveStorage(KEYS.DEPARTMENTS, departments);
+          }
+          break;
+        }
+
+        case 'student:deleted': {
+          if (payload.id) {
+            const list = loadStorage<StudentProfile[]>(KEYS.STUDENTS, INITIAL_STUDENTS).filter(
+              s => s.id !== payload.id && s.userId !== payload.userId
+            );
+            saveStorage(KEYS.STUDENTS, list);
+            const users = loadStorage<User[]>(KEYS.USERS, INITIAL_USERS).filter(
+              u => u.id !== payload.userId && u.id !== payload.id
+            );
+            saveStorage(KEYS.USERS, users);
+          }
+          break;
+        }
+
+        case 'faculty:deleted': {
+          if (payload.id) {
+            const list = loadStorage<FacultyProfile[]>(KEYS.FACULTY, INITIAL_FACULTY).filter(
+              f => f.id !== payload.id && f.userId !== payload.userId
+            );
+            saveStorage(KEYS.FACULTY, list);
+            const users = loadStorage<User[]>(KEYS.USERS, INITIAL_USERS).filter(
+              u => u.id !== payload.userId && u.id !== payload.id
+            );
+            saveStorage(KEYS.USERS, users);
           }
           break;
         }

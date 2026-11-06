@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { dbStore } from '../store/storage';
 import { emitToAll, emitToRole } from '../socket';
+import { isDbConnected } from '../db/connection';
+import { StudentProfileModel, UserModel, CourseEnrollmentModel, ExamAttemptModel } from '../models/index';
 
 const router = Router();
 
@@ -175,13 +177,13 @@ router.post('/', (req: Request, res: Response) => {
   return res.status(201).json({ user: userSafe, profile });
 });
 
-// PUT /api/students/:id
-router.put('/:id', (req: Request, res: Response) => {
+// PUT /api/students/:id (and transfer cohort)
+router.put('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const updates = req.body;
   const data = dbStore.getData();
 
-  const idx = data.students.findIndex(s => s.id === id);
+  const idx = data.students.findIndex(s => s.id === id || s.userId === id);
   if (idx === -1) {
     return res.status(404).json({ error: 'Student profile not found.' });
   }
@@ -189,6 +191,14 @@ router.put('/:id', (req: Request, res: Response) => {
   // Prevent modifying register number
   delete updates.rollNumber;
   delete updates.registrationNumber;
+
+  // Resolve departmentName if departmentId changed
+  if (updates.departmentId && updates.departmentId !== data.students[idx].departmentId) {
+    const targetDept = data.departments.find(d => d.id === updates.departmentId);
+    if (targetDept) {
+      updates.departmentName = targetDept.name;
+    }
+  }
 
   // If section changed, validate capacity of new section
   if (updates.section && updates.section !== data.students[idx].section) {
@@ -202,12 +212,84 @@ router.put('/:id', (req: Request, res: Response) => {
   data.students[idx] = { ...data.students[idx], ...updates };
   dbStore.save();
 
+  if (isDbConnected()) {
+    try {
+      await StudentProfileModel.findOneAndUpdate(
+        { $or: [{ id: data.students[idx].id }, { userId: data.students[idx].userId }] },
+        { $set: updates }
+      ).catch(() => {});
+    } catch {}
+  }
+
   emitToAll('student:updated', {
     student: data.students[idx],
     sections: dbStore.getData().sections
   });
 
   return res.json(data.students[idx]);
+});
+
+// DELETE /api/students/:id
+router.delete('/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const data = dbStore.getData();
+
+  const idx = data.students.findIndex(s => s.id === id || s.userId === id);
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Student record not found.' });
+  }
+
+  const student = data.students[idx];
+  const userId = student.userId;
+
+  // Remove from students array
+  data.students.splice(idx, 1);
+
+  // Remove corresponding user account
+  const uIdx = (data.users || []).findIndex(u => u.id === userId || u.id === id);
+  if (uIdx !== -1) {
+    data.users.splice(uIdx, 1);
+  }
+
+  // Remove related enrollments and exam attempts
+  if (data.enrollments) {
+    data.enrollments = data.enrollments.filter(e => e.studentId !== student.id && e.studentId !== userId);
+  }
+  if (data.examAttempts) {
+    data.examAttempts = data.examAttempts.filter(a => a.studentId !== student.id && a.studentId !== userId);
+  }
+  if (data.results) {
+    data.results = data.results.filter((r: any) => r.studentId !== student.id && r.studentId !== userId);
+  }
+
+  // Save to disk and database
+  dbStore.recalculateSectionCounts();
+  dbStore.save();
+
+  // Clean from MongoDB if connected
+  if (isDbConnected()) {
+    try {
+      await Promise.all([
+        StudentProfileModel.deleteOne({ $or: [{ id: student.id }, { userId }] }),
+        UserModel.deleteOne({ id: userId }),
+        CourseEnrollmentModel.deleteMany({ studentId: { $in: [student.id, userId] } }),
+        ExamAttemptModel.deleteMany({ studentId: { $in: [student.id, userId] } })
+      ]);
+    } catch (e: any) {
+      console.warn('[Student Routes] MongoDB cleanup note:', e.message);
+    }
+  }
+
+  emitToAll('student:deleted', { id: student.id, userId });
+  dbStore.logAudit(
+    'Student Removed',
+    (req as any).user?.name || 'Administrator',
+    'admin',
+    `Student ${student.rollNumber}`,
+    `Permanently removed student ${student.rollNumber}`
+  );
+
+  return res.json({ success: true, message: 'Student successfully removed.' });
 });
 
 // GET /api/students/enrollments/all

@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { dbStore } from '../store/storage';
 import { emitToAll } from '../socket';
+import { isDbConnected } from '../db/connection';
+import { FacultyProfileModel, UserModel, TeachingAssignmentModel } from '../models/index';
 
 const router = Router();
 
@@ -348,10 +350,83 @@ router.put('/:id', (req: Request, res: Response) => {
   data.faculty[idx] = { ...data.faculty[idx], ...updates };
   dbStore.save();
 
+  if (isDbConnected()) {
+    try {
+      FacultyProfileModel.findOneAndUpdate(
+        { $or: [{ id: data.faculty[idx].id }, { userId: data.faculty[idx].userId }] },
+        { $set: updates }
+      ).catch(() => {});
+    } catch {}
+  }
+
   emitToAll('faculty:updated', { profile: data.faculty[idx] });
   emitToAll('academic:updated', { type: 'faculty' });
 
   return res.json(data.faculty[idx]);
+});
+
+// DELETE /api/faculty/:id
+router.delete('/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const data = dbStore.getData();
+
+  const idx = data.faculty.findIndex(f => f.id === id || f.userId === id);
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Faculty record not found.' });
+  }
+
+  const faculty = data.faculty[idx];
+  const userId = faculty.userId;
+
+  // Remove from faculty array
+  data.faculty.splice(idx, 1);
+
+  // Remove corresponding user account
+  const uIdx = (data.users || []).findIndex(u => u.id === userId || u.id === id);
+  if (uIdx !== -1) {
+    data.users.splice(uIdx, 1);
+  }
+
+  // Remove teaching assignments
+  if (data.teachingAssignments) {
+    data.teachingAssignments = data.teachingAssignments.filter(
+      ta => ta.facultyId !== faculty.id && ta.facultyId !== userId
+    );
+  }
+
+  // If this faculty was HOD of any department, clear HOD fields
+  (data.departments || []).forEach(d => {
+    if (d.hodEmail && faculty.email && d.hodEmail.toLowerCase() === faculty.email.toLowerCase()) {
+      d.hodName = '';
+      d.hodEmail = '';
+    }
+  });
+
+  dbStore.save();
+
+  // Clean from MongoDB if connected
+  if (isDbConnected()) {
+    try {
+      await Promise.all([
+        FacultyProfileModel.deleteOne({ $or: [{ id: faculty.id }, { userId }] }),
+        UserModel.deleteOne({ id: userId }),
+        TeachingAssignmentModel.deleteMany({ facultyId: { $in: [faculty.id, userId] } })
+      ]);
+    } catch (e: any) {
+      console.warn('[Faculty Routes] MongoDB cleanup note:', e.message);
+    }
+  }
+
+  emitToAll('faculty:deleted', { id: faculty.id, userId });
+  dbStore.logAudit(
+    'Faculty Removed',
+    (req as any).user?.name || 'Administrator',
+    'admin',
+    `Faculty ${faculty.employeeId}`,
+    `Permanently removed faculty member ${faculty.name || faculty.employeeId}`
+  );
+
+  return res.json({ success: true, message: 'Faculty member successfully removed.' });
 });
 
 export default router;

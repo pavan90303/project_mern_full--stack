@@ -121,6 +121,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [transferNewDept, setTransferNewDept] = useState('');
   const [transferNewSection, setTransferNewSection] = useState('CSE-A');
   const [transferNewSem, setTransferNewSem] = useState(1);
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
 
   // Departments & Subjects state
   const [selectedDeptId, setSelectedDeptId] = useState<string>(departments[0]?.id || '');
@@ -384,27 +386,79 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setNewFacIsHOD(false);
   };
 
-  const handleTransferStudent = (e: React.FormEvent) => {
+  const handleTransferStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!transferStudentModal) return;
 
-    const newDeptObj = departments.find(d => d.id === transferNewDept);
-    EduTrackApi.updateStudentProfile(transferStudentModal.id, {
-      departmentId: transferNewDept || transferStudentModal.departmentId,
-      departmentName: newDeptObj ? newDeptObj.name : transferStudentModal.departmentName,
-      section: transferNewSection,
-      currentSemester: transferNewSem
-    });
+    setIsTransferring(true);
+    setTransferError(null);
 
-    EduTrackApi.logAudit(
-      'Student Transfer Executed',
-      currentUser.name,
-      'admin',
-      `Student ${transferStudentModal.rollNumber}`,
-      `Transferred to ${newDeptObj?.name || transferStudentModal.departmentName}, Sem ${transferNewSem}, Sec ${transferNewSection}`
+    try {
+      const newDeptObj = departments.find(d => d.id === transferNewDept);
+      await EduTrackApi.updateStudentProfile(transferStudentModal.id, {
+        departmentId: transferNewDept || transferStudentModal.departmentId,
+        departmentName: newDeptObj ? newDeptObj.name : transferStudentModal.departmentName,
+        section: transferNewSection,
+        currentSemester: transferNewSem
+      });
+
+      EduTrackApi.logAudit(
+        'Student Transfer Executed',
+        currentUser.name,
+        'admin',
+        `Student ${transferStudentModal.rollNumber}`,
+        `Transferred to ${newDeptObj?.name || transferStudentModal.departmentName}, Sem ${transferNewSem}, Sec ${transferNewSection}`
+      );
+
+      setRefreshKey(k => k + 1);
+      setTransferStudentModal(null);
+    } catch (err: any) {
+      setTransferError(err?.message || 'Failed to transfer student. Please check section capacity.');
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
+  const handleDeleteStudent = async (std: StudentProfile, studentName: string) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to permanently remove student ${studentName} (${std.rollNumber})? This will delete their profile, user account, course enrollments, and academic records.`
     );
+    if (!confirmed) return;
 
-    setTransferStudentModal(null);
+    try {
+      await EduTrackApi.deleteStudent(std.id);
+      EduTrackApi.logAudit(
+        'Student Removed',
+        currentUser.name,
+        'admin',
+        `Student ${std.rollNumber} (${studentName})`,
+        `Permanently removed from ${std.departmentName}`
+      );
+      setRefreshKey(k => k + 1);
+    } catch (err: any) {
+      alert(`Failed to delete student: ${err?.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleDeleteFaculty = async (fac: FacultyProfile, facultyName: string) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to permanently remove faculty ${facultyName} (${fac.employeeId})? This will delete their profile, user account, and teaching assignments.`
+    );
+    if (!confirmed) return;
+
+    try {
+      await EduTrackApi.deleteFaculty(fac.id);
+      EduTrackApi.logAudit(
+        'Faculty Removed',
+        currentUser.name,
+        'admin',
+        `Faculty ${fac.employeeId} (${facultyName})`,
+        `Permanently removed from ${fac.departmentName}`
+      );
+      setRefreshKey(k => k + 1);
+    } catch (err: any) {
+      alert(`Failed to delete faculty: ${err?.message || 'Unknown error'}`);
+    }
   };
 
   const handleCreateClassTimetable = (e: React.FormEvent) => {
@@ -825,8 +879,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             onClick={() => {
                               setTransferStudentModal(std);
                               setTransferNewDept(std.departmentId);
-                              setTransferNewSection(std.section);
+                              const deptSecs = allSections.filter(s => s.departmentId === std.departmentId);
+                              const currentSecExists = deptSecs.some(s => s.name === std.section || s.sectionCode === std.section);
+                              setTransferNewSection(currentSecExists ? std.section : (deptSecs[0]?.name || std.section || 'A'));
                               setTransferNewSem(std.currentSemester);
+                              setTransferError(null);
                             }}
                             className="flex-1 py-2 text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 transition-colors min-h-[40px] flex items-center justify-center"
                           >
@@ -842,6 +899,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             className="flex-1 py-2 text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded-lg transition-colors min-h-[40px] flex items-center justify-center"
                           >
                             Toggle Status
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStudent(std, user?.name || 'Student')}
+                            className="px-3 py-2 text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 rounded-lg transition-colors min-h-[40px] flex items-center justify-center"
+                            title="Remove student permanently"
+                          >
+                            Remove
                           </button>
                         </div>
                       </div>
@@ -888,8 +952,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 onClick={() => {
                                   setTransferStudentModal(std);
                                   setTransferNewDept(std.departmentId);
-                                  setTransferNewSection(std.section);
+                                  const deptSecs = allSections.filter(s => s.departmentId === std.departmentId);
+                                  const currentSecExists = deptSecs.some(s => s.name === std.section || s.sectionCode === std.section);
+                                  setTransferNewSection(currentSecExists ? std.section : (deptSecs[0]?.name || std.section || 'A'));
                                   setTransferNewSem(std.currentSemester);
+                                  setTransferError(null);
                                 }}
                                 className="px-2 py-1 text-[11px] font-medium bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 rounded hover:bg-indigo-100"
                                 title="Transfer section or department"
@@ -906,6 +973,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 className="px-2 py-1 text-[11px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded"
                               >
                                 Toggle
+                              </button>
+                              <button
+                                onClick={() => handleDeleteStudent(std, user?.name || 'Student')}
+                                className="px-2 py-1 text-[11px] font-medium bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 rounded"
+                                title="Remove student permanently"
+                              >
+                                Remove
                               </button>
                             </td>
                           </tr>
@@ -958,7 +1032,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           Office: <span className="font-medium text-slate-700 dark:text-slate-300">{fac.officeRoom}</span>
                         </div>
 
-                        <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                           <button
                             onClick={() => {
                               const newStatus = user?.status === 'active' ? 'inactive' : 'active';
@@ -966,9 +1040,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 EduTrackApi.updateUser(user.id, { status: newStatus });
                               }
                             }}
-                            className="w-full py-2 text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded-lg transition-colors min-h-[40px] flex items-center justify-center"
+                            className="flex-1 py-2 text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded-lg transition-colors min-h-[40px] flex items-center justify-center"
                           >
                             Toggle Active Status
+                          </button>
+                          <button
+                            onClick={() => handleDeleteFaculty(fac, user?.name || (fac as any).name || 'Faculty Member')}
+                            className="px-4 py-2 text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 rounded-lg transition-colors min-h-[40px] flex items-center justify-center"
+                            title="Remove faculty permanently"
+                          >
+                            Remove
                           </button>
                         </div>
                       </div>
@@ -1002,7 +1083,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{fac.departmentName}</td>
                             <td className="py-3 px-4 text-slate-700 dark:text-slate-200">{fac.designation}</td>
                             <td className="py-3 px-4 text-slate-500">{fac.officeRoom}</td>
-                            <td className="py-3 px-4 text-right">
+                            <td className="py-3 px-4 text-right space-x-1">
                               <button
                                 onClick={() => {
                                   const newStatus = user?.status === 'active' ? 'inactive' : 'active';
@@ -1013,6 +1094,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 className="px-2 py-1 text-[11px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded"
                               >
                                 Toggle Status
+                              </button>
+                              <button
+                                onClick={() => handleDeleteFaculty(fac, user?.name || (fac as any).name || 'Faculty Member')}
+                                className="px-2 py-1 text-[11px] font-medium bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 rounded"
+                                title="Remove faculty permanently"
+                              >
+                                Remove
                               </button>
                             </td>
                           </tr>
@@ -1355,49 +1443,99 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">Transfer Student Cohort</h3>
-                <button onClick={() => setTransferStudentModal(null)} className="text-slate-400">✕</button>
+                <button onClick={() => { setTransferStudentModal(null); setTransferError(null); }} className="text-slate-400">✕</button>
               </div>
               <p className="text-xs text-slate-500">
                 Transfer student Roll No <strong>{transferStudentModal.rollNumber}</strong> to a different department or section with academic history preservation.
               </p>
+
+              {transferError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{transferError}</span>
+                </div>
+              )}
+
               <form onSubmit={handleTransferStudent} className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Department</label>
                   <select
                     value={transferNewDept}
-                    onChange={(e) => setTransferNewDept(e.target.value)}
+                    onChange={(e) => {
+                      const newDeptId = e.target.value;
+                      setTransferNewDept(newDeptId);
+                      const targetDeptSecs = allSections.filter(s => s.departmentId === newDeptId);
+                      if (targetDeptSecs.length > 0) {
+                        setTransferNewSection(targetDeptSecs[0].name);
+                      }
+                      setTransferError(null);
+                    }}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none"
                   >
                     {departments.map(d => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
+                      <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
                     ))}
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Semester</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={8}
+                    <select
                       value={transferNewSem}
                       onChange={(e) => setTransferNewSem(Number(e.target.value))}
                       className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none"
-                    />
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
+                        <option key={sem} value={sem}>Semester {sem}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Section</label>
-                    <input
-                      type="text"
-                      value={transferNewSection}
-                      onChange={(e) => setTransferNewSection(e.target.value)}
-                      className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none"
-                    />
+                    {allSections.filter(s => s.departmentId === transferNewDept).length > 0 ? (
+                      <select
+                        value={transferNewSection}
+                        onChange={(e) => setTransferNewSection(e.target.value)}
+                        className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none"
+                      >
+                        {allSections
+                          .filter(s => s.departmentId === transferNewDept)
+                          .map(sec => (
+                            <option key={sec.id} value={sec.name}>
+                              Section {sec.name} ({sec.enrollmentCount}/{sec.maxCapacity} enrolled)
+                            </option>
+                          ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. A or CSE-A"
+                        value={transferNewSection}
+                        onChange={(e) => setTransferNewSection(e.target.value)}
+                        className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none"
+                      />
+                    )}
                   </div>
                 </div>
                 <div className="flex justify-end gap-2 pt-3">
-                  <button type="button" onClick={() => setTransferStudentModal(null)} className="px-3 py-2 text-xs text-slate-600">Cancel</button>
-                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-lg shadow-sm">Execute Transfer</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTransferStudentModal(null);
+                      setTransferError(null);
+                    }}
+                    className="px-3 py-2 text-xs text-slate-600 hover:text-slate-800 dark:text-slate-400"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isTransferring}
+                    className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {isTransferring ? 'Transferring...' : 'Execute Transfer'}
+                  </button>
                 </div>
               </form>
             </div>
