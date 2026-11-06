@@ -2352,8 +2352,8 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                     const completionPct = Math.min(100, Math.round((subCount / totalEligible) * 100));
 
                     const todayStr = new Date().toISOString().split('T')[0];
-                    const isOverdue = asg.dueDate < todayStr;
-                    const isDueToday = asg.dueDate === todayStr;
+                    const isOverdue = asg.dueDate ? asg.dueDate < todayStr : false;
+                    const isDueToday = asg.dueDate ? asg.dueDate === todayStr : false;
 
                     return (
                       <div
@@ -2561,6 +2561,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                 type RosterRow = {
                   key: string;
                   student: StudentProfile;
+                  studentName: string;
                   assignment: Assignment;
                   submission?: Submission;
                   status: 'graded' | 'submitted' | 'pending';
@@ -2611,9 +2612,12 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                   for (const std of studentPool) {
                     const sub = asgSubs.find(s => s.studentId === std.id || s.rollNumber === std.rollNumber);
                     const status: 'graded' | 'submitted' | 'pending' = sub ? (sub.status === 'graded' ? 'graded' : 'submitted') : 'pending';
+                    const u = allUsers.find(user => user.id === std.userId);
+                    const resolvedName = sub?.studentName || u?.name || (std as any).name || (std as any).studentName || (std.rollNumber ? `Student (${std.rollNumber})` : 'Student');
                     rows.push({
                       key: `${asg.id}_${std.id}`,
                       student: std,
+                      studentName: resolvedName,
                       assignment: asg,
                       submission: sub,
                       status
@@ -2636,10 +2640,10 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                   if (submissionStatusFilter === 'graded' && r.status !== 'graded') return false;
                   if (submissionSearch.trim()) {
                     const q = submissionSearch.toLowerCase();
-                    const matchName = r.student.name.toLowerCase().includes(q);
-                    const matchRoll = r.student.rollNumber.toLowerCase().includes(q);
-                    const matchFile = r.submission?.fileName?.toLowerCase().includes(q) || false;
-                    const matchAsg = r.assignment.title.toLowerCase().includes(q);
+                    const matchName = (r.studentName || '').toLowerCase().includes(q);
+                    const matchRoll = (r.student.rollNumber || '').toLowerCase().includes(q);
+                    const matchFile = (r.submission?.fileName || '').toLowerCase().includes(q);
+                    const matchAsg = (r.assignment.title || '').toLowerCase().includes(q);
                     if (!matchName && !matchRoll && !matchFile && !matchAsg) return false;
                   }
                   return true;
@@ -2693,8 +2697,8 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                               >
                                 <div className="flex items-start justify-between gap-2">
                                   <div>
-                                    <span className="font-bold text-xs text-slate-900 dark:text-white">{student.name}</span>
-                                    <span className="block text-[11px] font-mono text-slate-400">{student.rollNumber} • Sec {student.section}</span>
+                                    <span className="font-bold text-xs text-slate-900 dark:text-white">{row.studentName}</span>
+                                    <span className="block text-[11px] font-mono text-slate-400">{student.rollNumber || 'N/A'} • Sec {student.section || 'All'}</span>
                                   </div>
                                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                                     status === 'graded'
@@ -2788,12 +2792,12 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                                     <td className="py-3 px-4">
                                       <div className="flex items-center gap-2">
                                         <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[11px] font-bold text-slate-700 dark:text-slate-200 shrink-0">
-                                          {student.name.charAt(0).toUpperCase()}
+                                          {(row.studentName || 'S').charAt(0).toUpperCase()}
                                         </div>
                                         <div>
-                                          <span className="font-semibold text-slate-900 dark:text-white block">{student.name}</span>
+                                          <span className="font-semibold text-slate-900 dark:text-white block">{row.studentName}</span>
                                           <span className="text-[11px] font-mono text-slate-400">
-                                            {student.rollNumber} • <span className="font-medium text-slate-500">Sec {student.section}</span>
+                                            {student.rollNumber || 'N/A'} • <span className="font-medium text-slate-500">Sec {student.section || 'All'}</span>
                                           </span>
                                         </div>
                                       </div>
