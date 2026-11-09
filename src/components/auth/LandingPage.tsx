@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { Card3D } from '../common/Card3D';
 import { AcademicGeometric3D } from '../common/AcademicGeometric3D';
+import campusHeroImg from '../../assets/images/edu_campus_hero_1791517492906.jpg';
+import institutionSealImg from '../../assets/images/edu_institution_seal_1791517510992.jpg';
 
 interface LandingPageProps {
   onGoToLogin: (role?: 'admin' | 'faculty' | 'student') => void;
@@ -97,9 +99,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="lg:col-span-5 relative">
               <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-xl bg-slate-900">
                 <img
-                  src="/src/assets/images/edu_campus_hero_1791517492906.jpg"
+                  src={campusHeroImg}
                   alt="University Academic Research Center"
                   referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    if (!target.src.includes('/images/')) {
+                      target.src = '/images/edu_campus_hero_1791517492906.jpg';
+                    }
+                  }}
                   className="w-full h-64 sm:h-80 lg:h-96 object-cover opacity-85 hover:opacity-95 transition-opacity"
                 />
 
@@ -111,9 +119,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <div className="absolute bottom-0 inset-x-0 p-5 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent text-white">
                   <div className="flex items-center gap-2 text-xs font-bold text-indigo-400 mb-1">
                     <img
-                      src="/src/assets/images/edu_institution_seal_1791517510992.jpg"
+                      src={institutionSealImg}
                       alt="University Crest"
                       referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (!target.src.includes('/images/')) {
+                          target.src = '/images/edu_institution_seal_1791517510992.jpg';
+                        }
+                      }}
                       className="w-6 h-6 rounded-full bg-white p-0.5 object-cover"
                     />
                     <span>Autonomous University of Engineering</span>

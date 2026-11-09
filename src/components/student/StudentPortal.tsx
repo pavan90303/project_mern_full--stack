@@ -208,21 +208,32 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         setStudentOnlineExams(EduTrackApi.getOnlineExamsSync());
       });
       if (profile.id) {
-        setStudentExamAttempts(EduTrackApi.getExamAttemptsForStudent(profile.id));
+        EduTrackApi.getExamAttempts(profile.id, profile.rollNumber, profile.userId).then(attempts => {
+          if (attempts) setStudentExamAttempts(attempts);
+        }).catch(() => {
+          setStudentExamAttempts(EduTrackApi.getExamAttemptsForStudent(profile.id, profile.rollNumber, profile.userId));
+        });
       }
     });
-  }, [profile.id]);
+  }, [profile.id, profile.rollNumber, profile.userId]);
 
   // Sync fresh online exams and attempts on mount & tab/page switch
   useEffect(() => {
     EduTrackApi.getOnlineExams().then(exams => {
       if (exams) setStudentOnlineExams(exams);
     }).catch(() => {});
-  }, [resultsActiveTab, currentPage, profile.id, profile.departmentId, profile.currentSemester, profile.section]);
+    if (profile.id) {
+      EduTrackApi.getExamAttempts(profile.id, profile.rollNumber, profile.userId).then(attempts => {
+        if (attempts) setStudentExamAttempts(attempts);
+      }).catch(() => {
+        setStudentExamAttempts(EduTrackApi.getExamAttemptsForStudent(profile.id, profile.rollNumber, profile.userId));
+      });
+    }
+  }, [resultsActiveTab, currentPage, profile.id, profile.rollNumber, profile.userId, profile.departmentId, profile.currentSemester, profile.section]);
 
   // Check and recover ongoing in-progress exam on page refresh
   useEffect(() => {
-    const inProgress = EduTrackApi.getExamAttemptsForStudent(profile.id).find(a => a.status === 'IN_PROGRESS');
+    const inProgress = EduTrackApi.getExamAttemptsForStudent(profile.id, profile.rollNumber, profile.userId).find(a => a.status === 'IN_PROGRESS');
     if (inProgress) {
       EduTrackApi.startOnlineExam(inProgress.examId).then(res => {
         if (res && res.attempt && res.attempt.status === 'IN_PROGRESS' && res.remainingSeconds > 0) {
@@ -279,6 +290,27 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
   const handleStartExam = async (exam: OnlineExam) => {
     setExamStartError(null);
+
+    // Enforce results released or closed check
+    if (exam.resultsReleased || exam.status === 'CLOSED') {
+      alert('Results have already been released for this examination. Further attendance is closed.');
+      return;
+    }
+
+    // Check if student has already written/completed/submitted this exam
+    const existingAttempt = studentExamAttempts.find(
+      a => a.examId === exam.id && (
+        a.status === 'SUBMITTED' ||
+        a.status === 'COMPLETED' ||
+        a.status === 'EVALUATED' ||
+        a.status === 'EXPIRED' ||
+        Boolean(a.submitTime)
+      )
+    );
+    if (existingAttempt) {
+      alert('You have already written this examination. You cannot attend it again.');
+      return;
+    }
 
     // Enforce expiry validation
     const todayStr = new Date().toISOString().split('T')[0];
@@ -380,17 +412,17 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
       // Refresh attempts & examinations from server
       try {
-        const attempts = await EduTrackApi.getExamAttempts(profile.id);
+        const attempts = await EduTrackApi.getExamAttempts(profile.id, profile.rollNumber, profile.userId);
         if (attempts) setStudentExamAttempts(attempts);
       } catch {
-        setStudentExamAttempts(EduTrackApi.getExamAttemptsForStudent(profile.id));
+        setStudentExamAttempts(EduTrackApi.getExamAttemptsForStudent(profile.id, profile.rollNumber, profile.userId));
       }
 
       try {
         const updatedExams = await EduTrackApi.getOnlineExams();
-        if (updatedExams) setOnlineExams(updatedExams);
+        if (updatedExams) setStudentOnlineExams(updatedExams);
       } catch {
-        setOnlineExams(EduTrackApi.getOnlineExamsSync());
+        setStudentOnlineExams(EduTrackApi.getOnlineExamsSync());
       }
     } catch (err: any) {
       alert(err.message || 'Failed to submit examination.');
@@ -410,17 +442,17 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       setViewingResultAttempt(null);
 
       try {
-        const attempts = await EduTrackApi.getExamAttempts(profile.id);
+        const attempts = await EduTrackApi.getExamAttempts(profile.id, profile.rollNumber, profile.userId);
         if (attempts) setStudentExamAttempts(attempts);
       } catch {
-        setStudentExamAttempts(EduTrackApi.getExamAttemptsForStudent(profile.id));
+        setStudentExamAttempts(EduTrackApi.getExamAttemptsForStudent(profile.id, profile.rollNumber, profile.userId));
       }
 
       try {
         const updatedExams = await EduTrackApi.getOnlineExams();
-        if (updatedExams) setOnlineExams(updatedExams);
+        if (updatedExams) setStudentOnlineExams(updatedExams);
       } catch {
-        setOnlineExams(EduTrackApi.getOnlineExamsSync());
+        setStudentOnlineExams(EduTrackApi.getOnlineExamsSync());
       }
     } catch (err) {
       console.warn('Auto-submit on expiry error:', err);
@@ -1183,7 +1215,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     // Filter online exams strictly to student's enrolled cohort
     const myCohortOnlineExams = studentOnlineExams.filter(exam => {
-      if (exam.status !== 'PUBLISHED') return false;
+      if (exam.status !== 'PUBLISHED' && exam.status !== 'CLOSED' && !exam.resultsReleased) return false;
       const deptMatch = isMatchingDepartment(exam.departmentId, profile.departmentId);
       const semMatch = Number(exam.semester) === Number(profile.currentSemester);
       const secMatch = isMatchingSection(profile.section, exam.section);
@@ -1734,9 +1766,27 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               <div className="grid grid-cols-1 gap-4">
                 {myCohortOnlineExams
                   .filter((exam) => {
-                    const myAttempt = studentExamAttempts.find((a) => a.examId === exam.id);
-                    const isCompleted = myAttempt && (myAttempt.status === 'COMPLETED' || myAttempt.status === 'EVALUATED' || myAttempt.status === 'SUBMITTED');
-                    const isInProgress = myAttempt && myAttempt.status === 'IN_PROGRESS';
+                    const myAttempt = studentExamAttempts.find((a) =>
+                      a.examId === exam.id && (
+                        a.studentId === profile.id ||
+                        a.studentId === profile.userId ||
+                        (currentUser?.id && a.studentId === currentUser.id) ||
+                        (profile.rollNumber && a.rollNumber === profile.rollNumber)
+                      )
+                    ) || (exam as any).userAttempt;
+
+                    const isCompleted = Boolean(
+                      myAttempt && (
+                        myAttempt.status === 'COMPLETED' ||
+                        myAttempt.status === 'EVALUATED' ||
+                        myAttempt.status === 'SUBMITTED' ||
+                        myAttempt.status === 'EXPIRED' ||
+                        Boolean(myAttempt.submitTime) ||
+                        myAttempt.score !== undefined
+                      )
+                    );
+                    const isInProgress = Boolean(myAttempt && myAttempt.status === 'IN_PROGRESS');
+                    const isConcludedByResults = Boolean(exam.resultsReleased || exam.status === 'CLOSED');
 
                     const todayStr = new Date().toISOString().split('T')[0];
                     const now = new Date();
@@ -1746,17 +1796,39 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     const isExpired = !isCompleted && !isInProgress && (isPastDate || isPastTime);
 
                     if (onlineExamFilter === 'completed') return isCompleted;
-                    if (onlineExamFilter === 'available') return (isInProgress || !isCompleted) && !isExpired;
-                    if (onlineExamFilter === 'upcoming') {
-                      return exam.examDate > todayStr && !isCompleted;
+                    if (onlineExamFilter === 'available') {
+                      if (isConcludedByResults || isCompleted) return false;
+                      return isInProgress || !isExpired;
                     }
-                    if (onlineExamFilter === 'expired') return isExpired;
+                    if (onlineExamFilter === 'upcoming') {
+                      if (isConcludedByResults || isCompleted) return false;
+                      return exam.examDate > todayStr;
+                    }
+                    if (onlineExamFilter === 'expired') return isExpired || (!isCompleted && isConcludedByResults);
                     return true;
                   })
                   .map((exam) => {
-                    const myAttempt = studentExamAttempts.find((a) => a.examId === exam.id);
-                    const isCompleted = myAttempt && (myAttempt.status === 'COMPLETED' || myAttempt.status === 'EVALUATED' || myAttempt.status === 'SUBMITTED');
-                    const isInProgress = myAttempt && myAttempt.status === 'IN_PROGRESS';
+                    const myAttempt = studentExamAttempts.find((a) =>
+                      a.examId === exam.id && (
+                        a.studentId === profile.id ||
+                        a.studentId === profile.userId ||
+                        (currentUser?.id && a.studentId === currentUser.id) ||
+                        (profile.rollNumber && a.rollNumber === profile.rollNumber)
+                      )
+                    ) || (exam as any).userAttempt;
+
+                    const isCompleted = Boolean(
+                      myAttempt && (
+                        myAttempt.status === 'COMPLETED' ||
+                        myAttempt.status === 'EVALUATED' ||
+                        myAttempt.status === 'SUBMITTED' ||
+                        myAttempt.status === 'EXPIRED' ||
+                        Boolean(myAttempt.submitTime) ||
+                        myAttempt.score !== undefined
+                      )
+                    );
+                    const isInProgress = Boolean(myAttempt && myAttempt.status === 'IN_PROGRESS');
+                    const isConcludedByResults = Boolean(exam.resultsReleased || exam.status === 'CLOSED');
 
                     const todayStr = new Date().toISOString().split('T')[0];
                     const now = new Date();
@@ -1764,6 +1836,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     const isPastDate = exam.examDate < todayStr;
                     const isPastTime = exam.examDate === todayStr && exam.endTime && currentTimeStr > exam.endTime;
                     const isExpired = !isCompleted && !isInProgress && (isPastDate || isPastTime);
+
+                    const passedBool = Boolean(myAttempt?.passed ?? (myAttempt as any)?.isPassed);
+                    const scoreVal = myAttempt?.score ?? (myAttempt as any)?.totalMarksObtained ?? 0;
+                    const totalMarksVal = exam.totalMarks || myAttempt?.totalMarks || (myAttempt as any)?.totalMaxMarks || 100;
+                    const percentVal = myAttempt?.percentage ?? (totalMarksVal > 0 ? (scoreVal / totalMarksVal) * 100 : 0);
 
                     return (
                       <div
@@ -1786,12 +1863,17 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                               {isCompleted ? (
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
                                   exam.resultsReleased
-                                    ? myAttempt.isPassed
+                                    ? passedBool
                                       ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300'
                                       : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300'
                                     : 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300'
                                 }`}>
-                                  {exam.resultsReleased ? (myAttempt.isPassed ? 'PASSED' : 'FAILED') : 'SUBMITTED'}
+                                  {exam.resultsReleased ? (passedBool ? 'PASSED' : 'FAILED') : 'SUBMITTED'}
+                                </span>
+                              ) : isConcludedByResults ? (
+                                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 flex items-center gap-1">
+                                  <CheckCheck className="w-3 h-3 text-indigo-500" />
+                                  RESULTS RELEASED (CLOSED)
                                 </span>
                               ) : isInProgress ? (
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 animate-pulse">
@@ -1869,12 +1951,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                               exam.resultsReleased ? (
                                 <div className="flex items-center gap-2">
                                   <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                                    Score: {myAttempt.totalMarksObtained} / {myAttempt.totalMaxMarks} ({myAttempt.percentage?.toFixed(1)}%)
+                                    Score: {scoreVal} / {totalMarksVal} ({percentVal.toFixed(1)}%)
                                   </span>
                                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                                    myAttempt.isPassed ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                                    passedBool ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                                   }`}>
-                                    {myAttempt.isPassed ? 'Passed' : 'Failed'}
+                                    {passedBool ? 'Passed' : 'Failed'}
                                   </span>
                                 </div>
                               ) : (
@@ -1883,6 +1965,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                                   Attempt recorded · Results awaiting faculty release
                                 </span>
                               )
+                            ) : isConcludedByResults ? (
+                              <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                                <CheckCheck className="w-3.5 h-3.5 text-indigo-500" />
+                                <span>Official results released by faculty. Assessment is concluded.</span>
+                              </span>
                             ) : isInProgress ? (
                               <span className="text-xs text-amber-600 font-semibold flex items-center gap-1.5">
                                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
@@ -1912,10 +1999,24 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                                   <span>View Detailed Results & Answers</span>
                                 </button>
                               ) : (
-                                <span className="px-3 py-1.5 text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-lg">
-                                  Submitted
-                                </span>
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="px-4 py-2 text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl cursor-default flex items-center gap-1.5"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
+                                  <span>Exam Written & Submitted (Awaiting Results)</span>
+                                </button>
                               )
+                            ) : isConcludedByResults ? (
+                              <button
+                                type="button"
+                                disabled
+                                className="px-5 py-2 text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-xl cursor-not-allowed flex items-center gap-1.5"
+                              >
+                                <CheckCheck className="w-3.5 h-3.5 text-indigo-400" />
+                                <span>Assessment Closed (Results Released)</span>
+                              </button>
                             ) : isInProgress ? (
                               <button
                                 type="button"
@@ -2058,7 +2159,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     {viewingResultExam.title} - Official Evaluation
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Candidate: {viewingResultAttempt.studentName} ({viewingResultAttempt.studentRollNumber})
+                    Candidate: {viewingResultAttempt.studentName} ({viewingResultAttempt.rollNumber || (viewingResultAttempt as any).studentRollNumber || profile.rollNumber})
                   </p>
                 </div>
                 <button
@@ -2078,16 +2179,16 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   <span className="text-[11px] text-slate-400 block">Marks Obtained</span>
                   <div className="flex items-baseline gap-1 mt-1">
                     <span className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400">
-                      {viewingResultAttempt.totalMarksObtained}
+                      {viewingResultAttempt.score ?? (viewingResultAttempt as any).totalMarksObtained ?? 0}
                     </span>
-                    <span className="text-xs text-slate-400">/ {viewingResultAttempt.totalMaxMarks} M</span>
+                    <span className="text-xs text-slate-400">/ {viewingResultExam.totalMarks || viewingResultAttempt.totalMarks || (viewingResultAttempt as any).totalMaxMarks || 100} M</span>
                   </div>
                 </div>
 
                 <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
                   <span className="text-[11px] text-slate-400 block">Score Percentage</span>
                   <span className="text-xl font-bold font-mono text-slate-900 dark:text-white mt-1 block">
-                    {viewingResultAttempt.percentage?.toFixed(1)}%
+                    {(viewingResultAttempt.percentage ?? (((viewingResultAttempt.score ?? 0) / (viewingResultExam.totalMarks || 1)) * 100)).toFixed(1)}%
                   </span>
                 </div>
 
@@ -2095,11 +2196,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   <span className="text-[11px] text-slate-400 block">Correct / Wrong</span>
                   <div className="flex items-baseline gap-1 mt-1 text-xs">
                     <span className="text-xl font-bold font-mono text-emerald-600">
-                      {viewingResultAttempt.correctCount}
+                      {viewingResultAttempt.correctCount ?? (viewingResultAttempt.questionEvaluations?.filter((e: any) => e.isCorrect).length ?? 0)}
                     </span>
                     <span className="text-slate-400">correct ·</span>
                     <span className="text-xl font-bold font-mono text-rose-600">
-                      {viewingResultAttempt.incorrectCount}
+                      {viewingResultAttempt.incorrectCount ?? (viewingResultAttempt.questionEvaluations?.filter((e: any) => e.selectedOption && !e.isCorrect).length ?? 0)}
                     </span>
                     <span className="text-slate-400">wrong</span>
                   </div>
@@ -2108,11 +2209,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
                   <span className="text-[11px] text-slate-400 block">Evaluation Result</span>
                   <span className={`text-sm font-bold uppercase tracking-wider mt-2 inline-block px-2.5 py-0.5 rounded ${
-                    viewingResultAttempt.isPassed
+                    (viewingResultAttempt.passed ?? (viewingResultAttempt as any).isPassed)
                       ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
                       : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
                   }`}>
-                    {viewingResultAttempt.isPassed ? 'PASSED' : 'FAILED'}
+                    {(viewingResultAttempt.passed ?? (viewingResultAttempt as any).isPassed) ? 'PASSED' : 'FAILED'}
                   </span>
                 </div>
               </div>
@@ -2139,7 +2240,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                           ? (viewingResultAttempt.answers as Record<string, any>)[q.id]
                           : undefined);
 
-                      const isCorrect = studentOption === q.correctAnswer;
+                      const correctKey = q.correctAnswer || evalItem?.correctOption;
+                      const isCorrect = evalItem ? evalItem.isCorrect : (Boolean(studentOption) && studentOption === correctKey);
                       const isAttempted = Boolean(studentOption);
                       const marksAwarded = evalItem?.marksAwarded ?? ans?.marksAwarded;
 
@@ -2179,7 +2281,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                           {/* Options breakdown */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                             {normalizeQuestionOptions(q.options).map((opt) => {
-                              const isCorrectKey = opt.key === q.correctAnswer;
+                              const isCorrectKey = opt.key === correctKey;
                               const isSelectedByStudent = opt.key === studentOption;
 
                               return (

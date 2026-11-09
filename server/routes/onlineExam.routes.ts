@@ -163,7 +163,11 @@ router.get('/', (req: Request, res: Response) => {
     // Populate student's attempt status and sanitize questions if results not released
     const studentExams = exams.map(e => {
       const attempts = (data.examAttempts || []).filter(
-        a => a.examId === e.id && (a.studentId === student.id || a.studentId === user.id)
+        a => a.examId === e.id && (
+          a.studentId === student.id ||
+          a.studentId === user.id ||
+          (student.rollNumber && a.rollNumber === student.rollNumber)
+        )
       );
       const userAttempt = attempts[attempts.length - 1] || null;
 
@@ -179,6 +183,7 @@ router.get('/', (req: Request, res: Response) => {
 
       return {
         ...e,
+        status: e.resultsReleased ? 'CLOSED' : e.status,
         questions: sanitizedQuestions,
         attemptCount: attempts.length,
         userAttempt: userAttempt ? {
@@ -260,7 +265,11 @@ router.get('/:id', (req: Request, res: Response) => {
     }
 
     const attempts = (data.examAttempts || []).filter(
-      a => a.examId === exam.id && (a.studentId === student.id || a.studentId === user.id)
+      a => a.examId === exam.id && (
+        a.studentId === student.id ||
+        a.studentId === user.id ||
+        (student.rollNumber && a.rollNumber === student.rollNumber)
+      )
     );
     const userAttempt = attempts[attempts.length - 1] || null;
 
@@ -550,6 +559,7 @@ router.post('/:id/release-results', (req: Request, res: Response) => {
   }
 
   exam.resultsReleased = true;
+  exam.status = 'CLOSED';
   exam.updatedAt = new Date().toISOString();
 
   // Find all submitted attempts for this exam and reflect in student semester grades
@@ -759,6 +769,11 @@ router.post('/:id/start', (req: Request, res: Response) => {
     return res.status(403).json({ error: 'You are not eligible for this examination cohort.' });
   }
 
+  // Check if results are released or examination is closed
+  if (exam.resultsReleased || exam.status === 'CLOSED') {
+    return res.status(400).json({ error: 'Results have already been released for this examination. Further attendance is closed.' });
+  }
+
   // Check if examination has expired
   const todayStr = new Date().toISOString().split('T')[0];
   const now = new Date();
@@ -770,8 +785,22 @@ router.post('/:id/start', (req: Request, res: Response) => {
   }
 
   const studentAttempts = (data.examAttempts || []).filter(
-    a => a.examId === id && (a.studentId === student.id || a.studentId === user.id)
+    a => a.examId === id && (
+      a.studentId === student.id ||
+      a.studentId === user.id ||
+      (student.rollNumber && a.rollNumber === student.rollNumber)
+    )
   );
+
+  // If student has already written/submitted this exam, reject retake
+  const alreadyWritten = studentAttempts.find(
+    a => a.status === 'SUBMITTED' || a.status === 'COMPLETED' || a.status === 'EVALUATED' || a.status === 'EXPIRED' || a.submitTime
+  );
+  if (alreadyWritten) {
+    return res.status(400).json({
+      error: 'You have already written this examination. You cannot attend it again.'
+    });
+  }
 
   const activeAttempt = studentAttempts.find(a => a.status === 'IN_PROGRESS');
 

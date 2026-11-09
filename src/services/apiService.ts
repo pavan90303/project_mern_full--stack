@@ -209,7 +209,8 @@ export class EduTrackApi {
         allResults,
         onlineExamsList,
         serverUsers,
-        serverSubmissions
+        serverSubmissions,
+        serverAttempts
       ] = await Promise.all([
         apiRequest<Department[]>('/api/departments'),
         apiRequest<Section[]>('/api/sections'),
@@ -228,7 +229,8 @@ export class EduTrackApi {
         apiRequest<AssessmentResult[]>('/api/students/results/all'),
         apiRequest<OnlineExam[]>('/api/online-exams'),
         apiRequest<User[]>('/api/auth/users'),
-        apiRequest<Submission[]>('/api/assignments/submissions/all')
+        apiRequest<Submission[]>('/api/assignments/submissions/all'),
+        apiRequest<ExamAttempt[]>('/api/online-exams/attempts/all')
       ]);
 
       if (serverUsers && Array.isArray(serverUsers)) {
@@ -365,6 +367,16 @@ export class EduTrackApi {
           }
         });
         saveStorage(KEYS.SUBMISSIONS, mergedSubs);
+      }
+      if (serverAttempts && Array.isArray(serverAttempts)) {
+        const localAttempts = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
+        const mergedAttempts = [...serverAttempts];
+        localAttempts.forEach(la => {
+          if (!mergedAttempts.some(ma => ma.id === la.id)) {
+            mergedAttempts.push(la);
+          }
+        });
+        saveStorage(KEYS.EXAM_ATTEMPTS, mergedAttempts);
       }
     } catch {
       // Offline fallback
@@ -2115,7 +2127,9 @@ export class EduTrackApi {
     const updated = res.exam;
     const list = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
     const idx = list.findIndex(e => e.id === id);
-    if (idx !== -1) list[idx] = updated;
+    if (idx !== -1) {
+      list[idx] = { ...list[idx], ...updated, resultsReleased: true, status: 'CLOSED' };
+    }
     saveStorage(KEYS.ONLINE_EXAMS, list);
     this.handleRealtimeSync('online_exam:results_released', { examId: id });
     return updated;
@@ -2158,29 +2172,63 @@ export class EduTrackApi {
     const res = await apiRequest<{ message: string; attempt: ExamAttempt; resultsReleased: boolean }>(`/api/online-exams/${id}/submit`, {
       method: 'POST'
     });
+    if (res && res.attempt) {
+      const list = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
+      const idx = list.findIndex(a => a.id === res.attempt.id);
+      if (idx !== -1) list[idx] = res.attempt;
+      else list.unshift(res.attempt);
+      saveStorage(KEYS.EXAM_ATTEMPTS, list);
+    }
+    if (res && res.resultsReleased) {
+      const exams = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
+      const eIdx = exams.findIndex(e => e.id === id);
+      if (eIdx !== -1) {
+        exams[eIdx].resultsReleased = true;
+        exams[eIdx].status = 'CLOSED';
+        saveStorage(KEYS.ONLINE_EXAMS, exams);
+      }
+    }
     this.handleRealtimeSync('online_exam:submitted', res);
     return res;
   }
 
-  static async getExamAttempts(studentId?: string): Promise<ExamAttempt[]> {
-    const query = studentId ? `?studentId=${studentId}` : '';
+  static async getExamAttempts(studentId?: string, rollNumber?: string, userId?: string): Promise<ExamAttempt[]> {
+    const query = studentId ? `?studentId=${encodeURIComponent(studentId)}` : '';
     try {
       const res = await apiRequest<ExamAttempt[]>(`/api/online-exams/attempts/all${query}`);
       if (res && Array.isArray(res)) {
-        saveStorage(KEYS.EXAM_ATTEMPTS, res);
-        return res;
+        const local = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
+        const merged = [...res];
+        local.forEach(l => {
+          if (!merged.some(m => m.id === l.id)) {
+            merged.push(l);
+          }
+        });
+        saveStorage(KEYS.EXAM_ATTEMPTS, merged);
+        if (studentId || rollNumber || userId) {
+          return merged.filter(a =>
+            (studentId && a.studentId === studentId) ||
+            (userId && a.studentId === userId) ||
+            (rollNumber && a.rollNumber === rollNumber)
+          );
+        }
+        return merged;
       }
     } catch {}
-    return this.getExamAttemptsSync();
+    return this.getExamAttemptsForStudent(studentId || '', rollNumber, userId);
   }
 
   static getExamAttemptsSync(): ExamAttempt[] {
     return loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
   }
 
-  static getExamAttemptsForStudent(studentId: string): ExamAttempt[] {
+  static getExamAttemptsForStudent(studentId: string, rollNumber?: string, userId?: string): ExamAttempt[] {
     const all = this.getExamAttemptsSync();
-    return all.filter(a => a.studentId === studentId);
+    return all.filter(a =>
+      a.studentId === studentId ||
+      (userId && a.studentId === userId) ||
+      (rollNumber && a.rollNumber === rollNumber)
+    );
   }
 
   // --- WEAK CONCEPTS & ANALYTICS ---
@@ -3155,6 +3203,7 @@ export class EduTrackApi {
             const idx = list.findIndex(e => e.id === payload.examId);
             if (idx !== -1) {
               list[idx].resultsReleased = true;
+              list[idx].status = 'CLOSED';
               saveStorage(KEYS.ONLINE_EXAMS, list);
             }
           }
