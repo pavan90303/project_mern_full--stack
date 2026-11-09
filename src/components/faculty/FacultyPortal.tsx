@@ -680,11 +680,15 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
   const handleReleaseResultsAction = async (examId: string) => {
     try {
       const updated = await EduTrackApi.releaseOnlineExamResults(examId);
-      setOnlineExams(prev => prev.map(e => e.id === updated.id ? updated : e));
+      if (updated && updated.id) {
+        setOnlineExams(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated, resultsReleased: true, status: 'CLOSED' } : e));
+      } else {
+        setOnlineExams(prev => prev.map(e => e.id === examId ? { ...e, resultsReleased: true, status: 'CLOSED' } : e));
+      }
       if (analyticsData) {
         setAnalyticsData({
           ...analyticsData,
-          exam: { ...analyticsData.exam, resultsReleased: true }
+          exam: { ...analyticsData.exam, resultsReleased: true, status: 'CLOSED' }
         });
       }
     } catch (err: any) {

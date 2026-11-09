@@ -149,9 +149,19 @@ router.get('/', (req: Request, res: Response) => {
       return res.json([]);
     }
 
-    // Only published/completed exams for student's department, semester, section, and enrolled subject
+    // Only published, completed, or closed (results released) exams for student's cohort
     exams = exams.filter(e => {
-      const isStatusEligible = e.status === 'PUBLISHED' || e.status === 'COMPLETED';
+      // If student already has an attempt on this exam, ALWAYS include it so they see their written exam and results
+      const hasAttempt = (data.examAttempts || []).some(
+        a => a.examId === e.id && (
+          a.studentId === student.id ||
+          a.studentId === user.id ||
+          (student.rollNumber && a.rollNumber === student.rollNumber)
+        )
+      );
+      if (hasAttempt) return true;
+
+      const isStatusEligible = e.status === 'PUBLISHED' || e.status === 'COMPLETED' || e.status === 'CLOSED' || Boolean(e.resultsReleased);
       const isDeptEligible = isMatchingDepartment(e.departmentId, student.departmentId, data.departments);
       const isSemEligible = Number(e.semester) === Number(student.currentSemester);
       const isSecEligible = isMatchingSection(e.section, student.section);

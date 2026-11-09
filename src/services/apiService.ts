@@ -2041,8 +2041,15 @@ export class EduTrackApi {
     try {
       const res = await apiRequest<OnlineExam[]>(url);
       if (res && Array.isArray(res)) {
-        saveStorage(KEYS.ONLINE_EXAMS, res);
-        return res;
+        const local = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
+        const merged = [...res];
+        local.forEach(le => {
+          if (!merged.some(me => me.id === le.id)) {
+            merged.push(le);
+          }
+        });
+        saveStorage(KEYS.ONLINE_EXAMS, merged);
+        return merged;
       }
     } catch (e) {
       console.warn('[EduTrackApi] Failed to fetch online exams from server, fallback to cache:', e);
@@ -2121,22 +2128,120 @@ export class EduTrackApi {
   }
 
   static async releaseOnlineExamResults(id: string): Promise<OnlineExam> {
-    const res = await apiRequest<{ message: string; exam: OnlineExam }>(`/api/online-exams/${id}/release-results`, {
-      method: 'POST'
-    });
-    const updated = res.exam;
+    let serverExam: OnlineExam | null = null;
+    try {
+      const res = await apiRequest<{ message: string; exam: OnlineExam }>(`/api/online-exams/${id}/release-results`, {
+        method: 'POST'
+      });
+      if (res && res.exam) {
+        serverExam = res.exam;
+      }
+    } catch {}
+
     const list = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
     const idx = list.findIndex(e => e.id === id);
     if (idx !== -1) {
-      list[idx] = { ...list[idx], ...updated, resultsReleased: true, status: 'CLOSED' };
+      list[idx] = {
+        ...list[idx],
+        ...(serverExam || {}),
+        resultsReleased: true,
+        status: 'CLOSED',
+        updatedAt: new Date().toISOString()
+      };
+      saveStorage(KEYS.ONLINE_EXAMS, list);
     }
-    saveStorage(KEYS.ONLINE_EXAMS, list);
+    const finalExam = idx !== -1 ? list[idx] : serverExam || ({} as OnlineExam);
+
+    // Evaluate all student attempts for this exam in local storage so students immediately see their score & pass/fail
+    const attempts = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
+    let attChanged = false;
+    attempts.forEach(att => {
+      if (att.examId === id) {
+        if (!att.questionEvaluations && finalExam?.questions) {
+          let correctCount = 0;
+          let incorrectCount = 0;
+          let unansweredCount = 0;
+          let finalScore = 0;
+          const evals: any[] = [];
+          (finalExam.questions || []).forEach(q => {
+            const selected = att.answers ? (att.answers as any)[q.id] : undefined;
+            if (!selected) {
+              unansweredCount++;
+              evals.push({ questionId: q.id, isCorrect: false, marksAwarded: 0, explanation: q.explanation || '' });
+            } else if (selected === q.correctAnswer) {
+              correctCount++;
+              finalScore += (q.marks || 1);
+              evals.push({ questionId: q.id, selectedOption: selected, correctOption: q.correctAnswer, isCorrect: true, marksAwarded: q.marks || 1, explanation: q.explanation || '' });
+            } else {
+              incorrectCount++;
+              const pen = q.negativeMarks || 0;
+              finalScore -= pen;
+              evals.push({ questionId: q.id, selectedOption: selected, correctOption: q.correctAnswer, isCorrect: false, marksAwarded: -pen, explanation: q.explanation || '' });
+            }
+          });
+          finalScore = Math.max(0, finalScore);
+          const totalMarks = finalExam.totalMarks || 100;
+          att.score = finalScore;
+          att.totalMarks = totalMarks;
+          att.percentage = totalMarks > 0 ? (finalScore / totalMarks) * 100 : 0;
+          att.passed = finalScore >= (finalExam.passMarks || 0);
+          att.correctCount = correctCount;
+          att.incorrectCount = incorrectCount;
+          att.unansweredCount = unansweredCount;
+          att.questionEvaluations = evals;
+          attChanged = true;
+        }
+      }
+    });
+    if (attChanged) {
+      saveStorage(KEYS.EXAM_ATTEMPTS, attempts);
+    }
+
     this.handleRealtimeSync('online_exam:results_released', { examId: id });
-    return updated;
+    return finalExam;
   }
 
   static async getOnlineExamResults(id: string): Promise<ExamResultsAnalytics> {
-    return apiRequest<ExamResultsAnalytics>(`/api/online-exams/${id}/results`);
+    try {
+      const res = await apiRequest<ExamResultsAnalytics>(`/api/online-exams/${id}/results`);
+      if (res && res.exam) return res;
+    } catch {}
+
+    const exams = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
+    const exam = exams.find(e => e.id === id) || INITIAL_ONLINE_EXAMS[0];
+    const attempts = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
+    const examAttempts = attempts.filter(a => a.examId === id && (a.status === 'SUBMITTED' || a.submitTime));
+
+    const scores = examAttempts.map(a => a.score || 0);
+    const highestScore = scores.length > 0 ? Math.max(...scores) : 0;
+    const lowestScore = scores.length > 0 ? Math.min(...scores) : 0;
+    const averageScore = scores.length > 0 ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)) : 0;
+    const passCount = examAttempts.filter(a => a.passed).length;
+    const failCount = examAttempts.length - passCount;
+    const passPercentage = examAttempts.length > 0 ? Number(((passCount / examAttempts.length) * 100).toFixed(1)) : 0;
+
+    return {
+      exam,
+      analytics: {
+        totalEligible: Math.max(1, examAttempts.length),
+        attendedCount: examAttempts.length,
+        notAttendedCount: 0,
+        averageScore,
+        highestScore,
+        lowestScore,
+        passPercentage,
+        passCount,
+        failCount
+      },
+      questionPerformance: (exam.questions || []).map(q => ({
+        questionId: q.id,
+        questionText: q.questionText,
+        correctCount: examAttempts.filter(a => a.answers && (a.answers as any)[q.id] === q.correctAnswer).length,
+        totalAttempted: examAttempts.filter(a => a.answers && (a.answers as any)[q.id]).length,
+        accuracyPercentage: 100
+      })),
+      submissions: examAttempts
+    };
   }
 
   static async startOnlineExam(id: string): Promise<{ attempt?: ExamAttempt; exam?: OnlineExam; remainingSeconds?: number; error?: string }> {
@@ -2151,45 +2256,241 @@ export class EduTrackApi {
         },
         credentials: 'include'
       });
-      const data = await res.json();
-      if (!res.ok) {
-        return { error: data.error || 'Unable to start examination.' };
+      const cType = res.headers.get('content-type') || '';
+      if (cType.includes('application/json')) {
+        const data = await res.json();
+        if (data && (data.attempt || data.error)) {
+          return data;
+        }
       }
-      return data;
-    } catch (err: any) {
-      return { error: err.message || 'Network error starting examination.' };
+    } catch {}
+
+    // Offline / client-side execution fallback
+    const exams = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
+    const exam = exams.find(e => e.id === id);
+    if (!exam) {
+      return { error: 'Online examination not found.' };
     }
+    if (exam.resultsReleased || exam.status === 'CLOSED') {
+      return { error: 'Results have already been released for this examination. Further attendance is closed.' };
+    }
+
+    const currentUserId = localStorage.getItem(KEYS.CURRENT_USER_ID) || 'usr_current';
+    const students = loadStorage<StudentProfile[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+    const currentStudent = students.find(s => s.userId === currentUserId || s.id === currentUserId) || students[0];
+    const users = loadStorage<User[]>(KEYS.USERS, INITIAL_USERS);
+    const currentUser = users.find(u => u.id === currentUserId);
+
+    const attempts = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
+    const existing = attempts.find(a =>
+      a.examId === id && (
+        a.studentId === currentStudent?.id ||
+        a.studentId === currentUserId ||
+        (currentStudent?.rollNumber && a.rollNumber === currentStudent.rollNumber)
+      )
+    );
+
+    if (existing) {
+      if (existing.status === 'SUBMITTED' || existing.status === 'COMPLETED' || existing.status === 'EVALUATED' || existing.status === 'EXPIRED') {
+        return { error: 'You have already written this examination. You cannot attend it again.' };
+      }
+      if (existing.status === 'IN_PROGRESS') {
+        const elapsed = Math.floor((Date.now() - new Date(existing.startTime).getTime()) / 1000);
+        const total = (exam.durationMinutes || 60) * 60;
+        const remaining = Math.max(0, total - elapsed);
+        return { attempt: existing, exam, remainingSeconds: remaining };
+      }
+    }
+
+    const newAttempt: ExamAttempt = {
+      id: `att_${Date.now()}_${(currentStudent?.rollNumber || 'std').toLowerCase()}`,
+      examId: exam.id,
+      studentId: currentStudent?.id || currentUserId,
+      studentName: currentUser?.name || currentStudent?.name || 'Student',
+      rollNumber: currentStudent?.rollNumber || '',
+      departmentId: currentStudent?.departmentId || exam.departmentId,
+      semester: currentStudent?.currentSemester || exam.semester,
+      section: currentStudent?.section || exam.section,
+      attemptNumber: 1,
+      startTime: new Date().toISOString(),
+      status: 'IN_PROGRESS',
+      answers: {},
+      markedForReview: []
+    };
+
+    attempts.push(newAttempt);
+    saveStorage(KEYS.EXAM_ATTEMPTS, attempts);
+
+    return {
+      attempt: newAttempt,
+      exam,
+      remainingSeconds: (exam.durationMinutes || 60) * 60
+    };
   }
 
   static async saveOnlineExamAnswer(id: string, questionId: string, selectedOption?: string, isMarkedForReview?: boolean): Promise<{ success: boolean }> {
-    return apiRequest<{ success: boolean }>(`/api/online-exams/${id}/save-answer`, {
-      method: 'POST',
-      body: JSON.stringify({ questionId, selectedOption, isMarkedForReview })
-    });
+    try {
+      await apiRequest<{ success: boolean }>(`/api/online-exams/${id}/save-answer`, {
+        method: 'POST',
+        body: JSON.stringify({ questionId, selectedOption, isMarkedForReview })
+      });
+    } catch {}
+
+    // Always mirror answers directly in KEYS.EXAM_ATTEMPTS
+    const attempts = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
+    const currentUserId = localStorage.getItem(KEYS.CURRENT_USER_ID) || '';
+    const att = attempts.find(a =>
+      a.examId === id &&
+      a.status === 'IN_PROGRESS' &&
+      (a.studentId === currentUserId || !currentUserId)
+    ) || attempts.find(a => a.examId === id && a.status === 'IN_PROGRESS');
+
+    if (att) {
+      if (!att.answers) att.answers = {};
+      if (selectedOption) {
+        (att.answers as any)[questionId] = selectedOption;
+      } else {
+        delete (att.answers as any)[questionId];
+      }
+      if (!att.markedForReview) att.markedForReview = [];
+      if (isMarkedForReview && !att.markedForReview.includes(questionId)) {
+        att.markedForReview.push(questionId);
+      } else if (!isMarkedForReview && att.markedForReview.includes(questionId)) {
+        att.markedForReview = att.markedForReview.filter(q => q !== questionId);
+      }
+      saveStorage(KEYS.EXAM_ATTEMPTS, attempts);
+    }
+
+    return { success: true };
   }
 
   static async submitOnlineExam(id: string): Promise<{ message: string; attempt: ExamAttempt; resultsReleased: boolean }> {
-    const res = await apiRequest<{ message: string; attempt: ExamAttempt; resultsReleased: boolean }>(`/api/online-exams/${id}/submit`, {
-      method: 'POST'
-    });
-    if (res && res.attempt) {
-      const list = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
-      const idx = list.findIndex(a => a.id === res.attempt.id);
-      if (idx !== -1) list[idx] = res.attempt;
-      else list.unshift(res.attempt);
-      saveStorage(KEYS.EXAM_ATTEMPTS, list);
+    let serverRes: any = null;
+    try {
+      serverRes = await apiRequest<{ message: string; attempt: ExamAttempt; resultsReleased: boolean }>(`/api/online-exams/${id}/submit`, {
+        method: 'POST'
+      });
+    } catch {}
+
+    const exams = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
+    const exam = exams.find(e => e.id === id);
+
+    const attempts = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
+    const currentUserId = localStorage.getItem(KEYS.CURRENT_USER_ID) || '';
+    const attIdx = attempts.findIndex(a =>
+      a.examId === id &&
+      (a.studentId === currentUserId || a.status === 'IN_PROGRESS')
+    );
+
+    let submittedAttempt: ExamAttempt;
+
+    if (serverRes && serverRes.attempt) {
+      submittedAttempt = serverRes.attempt;
+      if (attIdx !== -1) attempts[attIdx] = serverRes.attempt;
+      else attempts.unshift(serverRes.attempt);
+    } else {
+      // Local Evaluation fallback
+      const att = attIdx !== -1 ? attempts[attIdx] : {
+        id: `att_${Date.now()}`,
+        examId: id,
+        studentId: currentUserId,
+        studentName: 'Student',
+        rollNumber: '',
+        departmentId: exam?.departmentId || '',
+        semester: exam?.semester || 1,
+        section: exam?.section || 'All',
+        attemptNumber: 1,
+        startTime: new Date().toISOString(),
+        status: 'IN_PROGRESS' as const,
+        answers: {},
+        markedForReview: []
+      };
+
+      const questions = exam?.questions || [];
+      let correctCount = 0;
+      let incorrectCount = 0;
+      let unansweredCount = 0;
+      let finalScore = 0;
+      const evaluations: any[] = [];
+
+      questions.forEach(q => {
+        const selected = att.answers ? (att.answers as any)[q.id] : undefined;
+        if (!selected) {
+          unansweredCount++;
+          evaluations.push({
+            questionId: q.id,
+            isCorrect: false,
+            marksAwarded: 0,
+            explanation: q.explanation || ''
+          });
+        } else if (selected === q.correctAnswer) {
+          correctCount++;
+          finalScore += (q.marks || 1);
+          evaluations.push({
+            questionId: q.id,
+            selectedOption: selected,
+            correctOption: q.correctAnswer,
+            isCorrect: true,
+            marksAwarded: q.marks || 1,
+            explanation: q.explanation || ''
+          });
+        } else {
+          incorrectCount++;
+          const penalty = q.negativeMarks || 0;
+          finalScore -= penalty;
+          evaluations.push({
+            questionId: q.id,
+            selectedOption: selected,
+            correctOption: q.correctAnswer,
+            isCorrect: false,
+            marksAwarded: -penalty,
+            explanation: q.explanation || ''
+          });
+        }
+      });
+
+      finalScore = Math.max(0, finalScore);
+      const totalMarks = exam?.totalMarks || 100;
+      const percentage = totalMarks > 0 ? (finalScore / totalMarks) * 100 : 0;
+      const passed = finalScore >= (exam?.passMarks || 0);
+
+      att.status = 'SUBMITTED';
+      att.submitTime = new Date().toISOString();
+      att.score = finalScore;
+      att.totalMarks = totalMarks;
+      att.percentage = percentage;
+      att.passed = passed;
+      att.correctCount = correctCount;
+      att.incorrectCount = incorrectCount;
+      att.unansweredCount = unansweredCount;
+      att.questionEvaluations = evaluations;
+
+      submittedAttempt = att;
+      if (attIdx !== -1) attempts[attIdx] = att;
+      else attempts.unshift(att);
     }
-    if (res && res.resultsReleased) {
-      const exams = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
-      const eIdx = exams.findIndex(e => e.id === id);
-      if (eIdx !== -1) {
-        exams[eIdx].resultsReleased = true;
-        exams[eIdx].status = 'CLOSED';
-        saveStorage(KEYS.ONLINE_EXAMS, exams);
+
+    saveStorage(KEYS.EXAM_ATTEMPTS, attempts);
+
+    const isReleased = Boolean(serverRes?.resultsReleased || exam?.resultsReleased);
+    if (exam) {
+      exam.attemptCount = (exam.attemptCount || 0) + 1;
+      if (isReleased) {
+        exam.resultsReleased = true;
+        exam.status = 'CLOSED';
       }
+      saveStorage(KEYS.ONLINE_EXAMS, exams);
     }
-    this.handleRealtimeSync('online_exam:submitted', res);
-    return res;
+
+    const payload = {
+      message: 'Examination submitted successfully!',
+      attempt: submittedAttempt,
+      resultsReleased: isReleased,
+      examId: id
+    };
+
+    this.handleRealtimeSync('online_exam:submitted', payload);
+    return payload;
   }
 
   static async getExamAttempts(studentId?: string, rollNumber?: string, userId?: string): Promise<ExamAttempt[]> {

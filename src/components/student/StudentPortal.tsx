@@ -1215,11 +1215,27 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     // Filter online exams strictly to student's enrolled cohort
     const myCohortOnlineExams = studentOnlineExams.filter(exam => {
+      // If student has already written or attempted this exam, ALWAYS show it so they can see their results
+      const hasMyAttempt = studentExamAttempts.some(a =>
+        a.examId === exam.id && (
+          a.studentId === profile.id ||
+          a.studentId === profile.userId ||
+          (currentUser?.id && a.studentId === currentUser.id) ||
+          (profile.rollNumber && a.rollNumber === profile.rollNumber)
+        )
+      ) || Boolean((exam as any).userAttempt);
+
+      if (hasMyAttempt) return true;
+
       if (exam.status !== 'PUBLISHED' && exam.status !== 'CLOSED' && !exam.resultsReleased) return false;
       const deptMatch = isMatchingDepartment(exam.departmentId, profile.departmentId);
       const semMatch = Number(exam.semester) === Number(profile.currentSemester);
       const secMatch = isMatchingSection(profile.section, exam.section);
       return deptMatch && semMatch && secMatch;
+    }).sort((a, b) => {
+      const dateA = a.updatedAt || a.createdAt || a.examDate || '';
+      const dateB = b.updatedAt || b.createdAt || b.examDate || '';
+      return dateB.localeCompare(dateA);
     });
 
     // If an exam is actively in progress, display the focused distraction-free examination screen
@@ -1795,7 +1811,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     const isPastTime = exam.examDate === todayStr && exam.endTime && currentTimeStr > exam.endTime;
                     const isExpired = !isCompleted && !isInProgress && (isPastDate || isPastTime);
 
-                    if (onlineExamFilter === 'completed') return isCompleted;
+                    if (onlineExamFilter === 'completed') return isCompleted || (Boolean(myAttempt) && Boolean(exam.resultsReleased));
                     if (onlineExamFilter === 'available') {
                       if (isConcludedByResults || isCompleted) return false;
                       return isInProgress || !isExpired;
