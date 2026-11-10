@@ -890,7 +890,7 @@ export class EduTrackApi {
         batch: '2023-2027',
         cgpa: 8.52,
         currentSgpa: 8.65,
-        attendancePercentage: 86.4,
+        attendancePercentage: 0,
         mentorFacultyId: 'usr_fac_01',
         academicStatus: 'Good Standing'
       };
@@ -911,9 +911,9 @@ export class EduTrackApi {
             subjectName: sub.name,
             instructorName: sub.assignedFacultyName || 'Prof. Marcus Vance',
             credits: sub.credits || 3,
-            attendedClasses: 13,
-            totalClasses: 15,
-            attendancePercentage: 86.7,
+            attendedClasses: 0,
+            totalClasses: 0,
+            attendancePercentage: 0,
             semester: sub.semester,
             academicYear: '2026-2027',
             gradePoints: 9.0,
@@ -1407,23 +1407,25 @@ export class EduTrackApi {
   // --- ENROLLMENTS & ATTENDANCE ---
   static getEnrollmentsForStudent(studentId: string): CourseEnrollment[] {
     const enrollments = loadStorage<CourseEnrollment[]>(KEYS.ENROLLMENTS, INITIAL_ENROLLMENTS);
-    const matched = enrollments.filter(e => e.studentId === studentId);
-    if (matched.length > 0) return matched;
+    const student = this.getAllStudents().find(s => s.id === studentId || s.userId === studentId || s.rollNumber === studentId);
+    const rollNo = student?.rollNumber;
+    const stdId = student?.id || studentId;
+    const uId = student?.userId;
 
-    const student = this.getAllStudents().find(s => s.id === studentId || s.userId === studentId);
-    if (student) {
+    let matched = enrollments.filter(e => e.studentId === stdId || e.studentId === studentId || (uId && e.studentId === uId));
+    if (matched.length === 0 && student) {
       const deptSubs = this.getSubjects().filter(s => s.departmentId === student.departmentId && s.semester === (student.currentSemester || 6));
       const autoEnrs: CourseEnrollment[] = deptSubs.map(sub => ({
-        id: `enr_${student.id}_${sub.id}`,
-        studentId: student.id,
+        id: `enr_${stdId}_${sub.id}`,
+        studentId: stdId,
         subjectId: sub.id,
         subjectCode: sub.code,
         subjectName: sub.name,
         instructorName: sub.assignedFacultyName || 'Prof. Marcus Vance',
         credits: sub.credits || 3,
-        attendedClasses: 13,
-        totalClasses: 15,
-        attendancePercentage: 86.7,
+        attendedClasses: 0,
+        totalClasses: 0,
+        attendancePercentage: 0,
         semester: sub.semester,
         academicYear: '2026-2027',
         gradePoints: 9.0,
@@ -1432,11 +1434,47 @@ export class EduTrackApi {
       if (autoEnrs.length > 0) {
         enrollments.push(...autoEnrs);
         saveStorage(KEYS.ENROLLMENTS, enrollments);
-        return autoEnrs;
+        matched = autoEnrs;
       }
     }
 
-    return [];
+    // Dynamic session-accurate attendance (no default fake numbers)
+    const sessions = this.getAttendanceSessions();
+    let updatedAny = false;
+    matched.forEach(enr => {
+      const subjectSessions = sessions.filter(s => s.subjectId === enr.subjectId || s.subjectCode === enr.subjectCode);
+      let attended = 0;
+      let total = 0;
+
+      subjectSessions.forEach(session => {
+        const rec = session.records?.find((r: any) =>
+          r.studentId === stdId ||
+          r.studentId === studentId ||
+          (uId && r.studentId === uId) ||
+          (rollNo && r.rollNumber === rollNo)
+        );
+        if (rec) {
+          total += 1;
+          if (rec.status === 'present' || rec.status === 'late') {
+            attended += 1;
+          }
+        }
+      });
+
+      const newPct = total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
+      if (enr.attendedClasses !== attended || enr.totalClasses !== total || enr.attendancePercentage !== newPct) {
+        enr.attendedClasses = attended;
+        enr.totalClasses = total;
+        enr.attendancePercentage = newPct;
+        updatedAny = true;
+      }
+    });
+
+    if (updatedAny) {
+      saveStorage(KEYS.ENROLLMENTS, enrollments);
+    }
+
+    return matched;
   }
 
   static getFacultyForSection(departmentId: string, sectionName: string, semester?: number): Array<{
@@ -1515,16 +1553,25 @@ export class EduTrackApi {
   static syncStudentAttendanceFromSessions(studentId: string): void {
     const sessions = this.getAttendanceSessions();
     const enrollments = loadStorage<CourseEnrollment[]>(KEYS.ENROLLMENTS, INITIAL_ENROLLMENTS);
+    const student = this.getAllStudents().find(s => s.id === studentId || s.userId === studentId || s.rollNumber === studentId);
+    const rollNo = student?.rollNumber;
+    const stdId = student?.id || studentId;
+    const uId = student?.userId;
 
     let updatedAny = false;
     enrollments.forEach(enr => {
-      if (enr.studentId === studentId) {
+      if (enr.studentId === stdId || enr.studentId === studentId || (uId && enr.studentId === uId)) {
         const subjectSessions = sessions.filter(s => s.subjectId === enr.subjectId || s.subjectCode === enr.subjectCode);
         let attended = 0;
         let total = 0;
 
         subjectSessions.forEach(session => {
-          const rec = session.records.find(r => r.studentId === studentId);
+          const rec = session.records?.find((r: any) =>
+            r.studentId === stdId ||
+            r.studentId === studentId ||
+            (uId && r.studentId === uId) ||
+            (rollNo && r.rollNumber === rollNo)
+          );
           if (rec) {
             total += 1;
             if (rec.status === 'present' || rec.status === 'late') {
@@ -1533,10 +1580,11 @@ export class EduTrackApi {
           }
         });
 
-        if (total > 0) {
+        const newPct = total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
+        if (enr.attendedClasses !== attended || enr.totalClasses !== total || enr.attendancePercentage !== newPct) {
           enr.attendedClasses = attended;
           enr.totalClasses = total;
-          enr.attendancePercentage = Math.round((attended / total) * 1000) / 10;
+          enr.attendancePercentage = newPct;
           updatedAny = true;
         }
       }
@@ -1544,16 +1592,19 @@ export class EduTrackApi {
 
     if (updatedAny) {
       saveStorage(KEYS.ENROLLMENTS, enrollments);
+    }
 
-      const profiles = this.getAllStudents();
-      const pIdx = profiles.findIndex(p => p.id === studentId);
-      if (pIdx !== -1) {
-        const studentEnrollments = enrollments.filter(e => e.studentId === studentId);
-        const totalClassesAll = studentEnrollments.reduce((acc, curr) => acc + curr.totalClasses, 0);
-        const attendedClassesAll = studentEnrollments.reduce((acc, curr) => acc + curr.attendedClasses, 0);
-        profiles[pIdx].attendancePercentage = totalClassesAll > 0
-          ? Math.round((attendedClassesAll / totalClassesAll) * 1000) / 10
-          : 0;
+    const profiles = this.getAllStudents();
+    const pIdx = profiles.findIndex(p => p.id === stdId || p.userId === studentId || (rollNo && p.rollNumber === rollNo));
+    if (pIdx !== -1) {
+      const studentEnrollments = enrollments.filter(e => e.studentId === stdId || e.studentId === studentId || (uId && e.studentId === uId));
+      const totalClassesAll = studentEnrollments.reduce((acc, curr) => acc + (curr.totalClasses || 0), 0);
+      const attendedClassesAll = studentEnrollments.reduce((acc, curr) => acc + (curr.attendedClasses || 0), 0);
+      const newOverallPct = totalClassesAll > 0
+        ? Math.round((attendedClassesAll / totalClassesAll) * 1000) / 10
+        : 0;
+      if (profiles[pIdx].attendancePercentage !== newOverallPct) {
+        profiles[pIdx].attendancePercentage = newOverallPct;
         saveStorage(KEYS.STUDENTS, profiles);
       }
     }
@@ -1725,6 +1776,19 @@ export class EduTrackApi {
   // --- ATTENDANCE SESSIONS ---
   static getAttendanceSessions(subjectId?: string): AttendanceSession[] {
     const list = loadStorage<AttendanceSession[]>(KEYS.ATTENDANCE_SESSIONS, []);
+    apiRequest<AttendanceSession[]>('/api/attendance/sessions').then(res => {
+      if (res && Array.isArray(res) && res.length !== list.length) {
+        saveStorage(KEYS.ATTENDANCE_SESSIONS, res);
+        res.forEach(sess => {
+          if (sess.records && Array.isArray(sess.records)) {
+            sess.records.forEach((r: any) => {
+              if (r.studentId) this.syncStudentAttendanceFromSessions(r.studentId);
+            });
+          }
+        });
+        this.subscribers.forEach(cb => { try { cb('attendance:session_recorded', { sessions: res }); } catch {} });
+      }
+    }).catch(() => {});
     if (subjectId) {
       return list.filter(s => s.subjectId === subjectId);
     }
@@ -3139,12 +3203,15 @@ export class EduTrackApi {
 
         case 'attendance:updated': {
           const newPct = payload.overallAttendance ?? payload.attendancePercentage;
-          if (payload.studentId && newPct !== undefined) {
-            const students = loadStorage<StudentProfile[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
-            const idx = students.findIndex(s => s.id === payload.studentId);
-            if (idx !== -1) {
-              students[idx].attendancePercentage = Number(newPct);
-              saveStorage(KEYS.STUDENTS, students);
+          if (payload.studentId) {
+            this.syncStudentAttendanceFromSessions(payload.studentId);
+            if (newPct !== undefined) {
+              const students = loadStorage<StudentProfile[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+              const idx = students.findIndex(s => s.id === payload.studentId || s.userId === payload.studentId);
+              if (idx !== -1) {
+                students[idx].attendancePercentage = Number(newPct);
+                saveStorage(KEYS.STUDENTS, students);
+              }
             }
           }
           break;
@@ -3157,6 +3224,11 @@ export class EduTrackApi {
             if (!exists) {
               sessions.unshift(payload.session);
               saveStorage(KEYS.ATTENDANCE_SESSIONS, sessions);
+            }
+            if (payload.session.records && Array.isArray(payload.session.records)) {
+              payload.session.records.forEach((r: any) => {
+                if (r.studentId) this.syncStudentAttendanceFromSessions(r.studentId);
+              });
             }
           }
           break;

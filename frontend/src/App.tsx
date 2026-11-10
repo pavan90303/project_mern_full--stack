@@ -57,7 +57,7 @@ export default function App() {
     const handleEvent = (event: string, payload: any) => {
       EduTrackApi.handleRealtimeSync(event, payload);
 
-      let title = 'Real-Time Sync';
+      let title = 'System Notification';
       let message = '';
       let type: 'info' | 'success' | 'alert' = 'info';
 

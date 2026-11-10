@@ -821,8 +821,9 @@ class StorageEngine {
           }
         }
 
-        this.saveDirect(parsed);
-        return parsed;
+        this.data = parsed;
+        this.recalculateAllAttendance();
+        return this.data;
       }
     } catch (err) {
       console.error('[StorageEngine] Error reading DB file, reinitializing default:', err);
@@ -1277,18 +1278,28 @@ class StorageEngine {
 
   // Attendance Recalculation Engine
   public recalculateAttendance(studentId: string): void {
-    const sessions = this.data.attendanceSessions;
+    const sessions = this.data.attendanceSessions || [];
     let totalAll = 0;
     let attendedAll = 0;
 
+    const studentProfile = this.data.students.find(s => s.id === studentId || s.userId === studentId || s.rollNumber === studentId);
+    const rollNo = studentProfile?.rollNumber;
+    const stdId = studentProfile?.id || studentId;
+    const uId = studentProfile?.userId;
+
     this.data.enrollments.forEach(enr => {
-      if (enr.studentId === studentId) {
+      if (enr.studentId === stdId || enr.studentId === studentId || (uId && enr.studentId === uId)) {
         const subSessions = sessions.filter(s => s.subjectId === enr.subjectId || s.subjectCode === enr.subjectCode);
         let attended = 0;
         let total = 0;
 
         subSessions.forEach(sess => {
-          const rec = sess.records.find((r: any) => r.studentId === studentId);
+          const rec = sess.records?.find((r: any) =>
+            r.studentId === stdId ||
+            r.studentId === studentId ||
+            (uId && r.studentId === uId) ||
+            (rollNo && r.rollNumber === rollNo)
+          );
           if (rec) {
             total++;
             if (rec.status === 'present' || rec.status === 'late') {
@@ -1297,24 +1308,29 @@ class StorageEngine {
           }
         });
 
-        if (total > 0) {
-          enr.totalClasses = total;
-          enr.attendedClasses = attended;
-          enr.attendancePercentage = Math.round((attended / total) * 1000) / 10;
-        }
+        // Exact calculated session attendance from real faculty submissions (no mock defaults)
+        enr.totalClasses = total;
+        enr.attendedClasses = attended;
+        enr.attendancePercentage = total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
 
-        totalAll += enr.totalClasses;
-        attendedAll += enr.attendedClasses;
+        totalAll += total;
+        attendedAll += attended;
       }
     });
 
-    const studentProfile = this.data.students.find(s => s.id === studentId);
     if (studentProfile) {
       studentProfile.attendancePercentage = totalAll > 0
         ? Math.round((attendedAll / totalAll) * 1000) / 10
         : 0;
     }
     this.saveDirect(this.data);
+  }
+
+  public recalculateAllAttendance(): void {
+    const students = this.data.students || [];
+    students.forEach(st => {
+      this.recalculateAttendance(st.id);
+    });
   }
 
   public getNextRollNumber(): string {

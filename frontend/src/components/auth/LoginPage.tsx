@@ -144,7 +144,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       inputIcon: Mail,
       buttonText: 'Access Administrator Portal',
       infoTitle: 'System Administrator Portal Access',
-      infoDesc: 'Protected by institutional credentials & Google Authentication (Firebase). Only institutional accounts provisioned with active Administrator authorization in MongoDB can access this portal.'
+      infoDesc: 'Protected by institutional credentials & Google Authentication (Firebase). Only institutional accounts provisioned with active Administrator authorization can access this portal.'
     },
     faculty: {
       tabLabel: 'Faculty Login',

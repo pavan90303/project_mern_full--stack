@@ -134,28 +134,6 @@ export const Header: React.FC<HeaderProps> = ({
             <Search className="w-4 h-4" />
           </button>
 
-          {/* Real-Time Sync Indicator */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors select-none">
-            {isSocketConnected ? (
-              <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/60">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span className="hidden md:inline">Real-Time Sync</span>
-                <span className="md:hidden">Live</span>
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800/60">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
-                <span>Connecting...</span>
-              </span>
-            )}
-          </div>
-
-          {/* MongoDB Persistence Indicator */}
-          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300" title="All administrative, faculty, and student updates are continuously persisted to MongoDB collections">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            <span>MongoDB Active</span>
-          </div>
-
           {/* System Database Reset Button */}
           <button
             onClick={() => {

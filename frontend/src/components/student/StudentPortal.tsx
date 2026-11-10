@@ -129,7 +129,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       batch: '2023-2027',
       cgpa: 8.52,
       currentSgpa: 8.65,
-      attendancePercentage: 86.4,
+      attendancePercentage: 0,
       mentorFacultyId: 'usr_fac_01',
       academicStatus: 'Good Standing'
     };
@@ -146,6 +146,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     return () => { isMounted = false; };
   }, [currentUser.id]);
 
+  useEffect(() => {
+    if (profile.id) {
+      EduTrackApi.syncStudentAttendanceFromSessions(profile.id);
+    }
+  }, [profile.id]);
+
   const allSubjects = EduTrackApi.getSubjects();
   const departmentSubjects = allSubjects.filter(s => s.departmentId === profile.departmentId);
   const sectionFacultyList = EduTrackApi.getFacultyForSection(profile.departmentId, profile.section, profile.currentSemester);
@@ -154,6 +160,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   
   // Real database-linked records
   const enrollments: CourseEnrollment[] = EduTrackApi.getEnrollmentsForStudent(profile.id);
+  const totalConductedClasses = enrollments.reduce((sum, e) => sum + (e.totalClasses || 0), 0);
+  const totalAttendedClasses = enrollments.reduce((sum, e) => sum + (e.attendedClasses || 0), 0);
+  const currentAttendancePct = totalConductedClasses > 0
+    ? Math.round((totalAttendedClasses / totalConductedClasses) * 1000) / 10
+    : 0;
   const timetable: TimetableEntry[] = EduTrackApi.getClassTimetables(profile.departmentId, profile.currentSemester, profile.section);
   const assignments: Assignment[] = EduTrackApi.getAssignments(profile.currentSemester);
   const submissions: Submission[] = EduTrackApi.getSubmissions().filter(s => s.studentId === profile.id);
@@ -615,13 +626,17 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
-                {profile.attendancePercentage}%
+                {totalConductedClasses > 0 ? `${currentAttendancePct}%` : '0%'}
               </span>
-              <span className={`text-[11px] font-semibold ${profile.attendancePercentage >= 75 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                {profile.attendancePercentage >= 75 ? 'Eligible' : 'Warning'}
+              <span className={`text-[11px] font-semibold ${totalConductedClasses === 0 ? 'text-slate-500 dark:text-slate-400' : (currentAttendancePct >= 75 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')}`}>
+                {totalConductedClasses === 0 ? 'No Classes Yet' : (currentAttendancePct >= 75 ? 'Eligible' : 'Warning')}
               </span>
             </div>
-            <p className="mt-3 text-[11px] text-slate-500">Across {enrollments.length} enrolled subjects</p>
+            <p className="mt-3 text-[11px] text-slate-500">
+              {totalConductedClasses > 0
+                ? `${totalAttendedClasses} of ${totalConductedClasses} classes attended across ${enrollments.length} subjects`
+                : `Across ${enrollments.length} enrolled subjects (No classes recorded yet)`}
+            </p>
           </Card3D>
 
           <Card3D className="p-5">
@@ -972,14 +987,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                           <div className="flex items-baseline justify-between mb-1.5">
                             <span className="text-xs text-slate-500">Attendance</span>
                             <span className={`text-sm font-bold tabular-nums ${isShortage ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'}`}>
-                              {course.attendedClasses} / {course.totalClasses} ({course.attendancePercentage}%)
+                              {course.totalClasses > 0 ? (
+                                `${course.attendedClasses} / ${course.totalClasses} (${course.attendancePercentage}%)`
+                              ) : (
+                                `0 / 0 (No classes yet)`
+                              )}
                             </span>
                           </div>
 
                           <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
                             <div
                               className={`h-full rounded-full transition-all duration-500 ${isShortage ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                              style={{ width: `${Math.min(100, course.attendancePercentage)}%` }}
+                              style={{ width: `${course.totalClasses > 0 ? Math.min(100, course.attendancePercentage) : 0}%` }}
                             />
                           </div>
 
@@ -1016,7 +1035,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         <div className="text-right">
                           <span className="text-xs text-slate-400 block">Current Attendance</span>
                           <span className="text-base font-extrabold text-slate-900 dark:text-white">
-                            {selectedEnrollment.attendedClasses} of {selectedEnrollment.totalClasses} classes ({selectedEnrollment.attendancePercentage}%)
+                            {selectedEnrollment.totalClasses > 0 ? (
+                              `${selectedEnrollment.attendedClasses} of ${selectedEnrollment.totalClasses} classes (${selectedEnrollment.attendancePercentage}%)`
+                            ) : (
+                              `0 of 0 classes (No sessions logged yet)`
+                            )}
                           </span>
                         </div>
                       </div>
@@ -1704,11 +1727,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         <td className="py-3 px-3 text-center font-mono">{enr.credits}</td>
                         <td className="py-3 px-3 text-center">
                           <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
-                            (enr.attendancePercentage || 0) >= 75
+                            (enr.totalClasses || 0) === 0
+                              ? 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800'
+                              : (enr.attendancePercentage || 0) >= 75
                               ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40'
                               : 'text-rose-700 bg-rose-50 dark:bg-rose-950/40'
                           }`}>
-                            {enr.attendancePercentage || 0}%
+                            {(enr.totalClasses || 0) === 0 ? 'No Classes' : `${enr.attendancePercentage || 0}%`}
                           </span>
                         </td>
                         <td className="py-3 px-3 text-center font-bold text-slate-900 dark:text-white">

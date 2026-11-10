@@ -4128,7 +4128,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
               </div>
 
               {analyticsLoading ? (
-                <div className="p-12 text-center text-xs text-slate-400">Loading live examination analytics from MongoDB...</div>
+                <div className="p-12 text-center text-xs text-slate-400">Loading live examination analytics...</div>
               ) : analyticsData ? (
                 <div className="space-y-5">
                   {/* Result Release Banner */}
