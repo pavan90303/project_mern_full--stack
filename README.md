@@ -18,6 +18,19 @@
 
 ---
 
+## 📌 Project Deliverables & Submission Matrix
+
+| # | Required Deliverable | Direct Repository Link / Live URL | Verification Status |
+|:---:|:---|:---|:---:|
+| **1** | **Complete Project Source Code** | [`frontend/`](./frontend/) · [`backend/`](./backend/) | ✅ Complete & Fully Operational |
+| **2** | **Project PPT & Documentation** | Presentation: [`docs/Project_PPT.pdf`](./docs/Project_PPT.pdf)<br>Academic SRS: [`docs/Project_Documentation.pdf`](./docs/Project_Documentation.pdf) | ✅ Verified (PDF format in `docs/`) |
+| **3** | **Live Deployment Link** | [**https://projectmernfull-stack-roan.vercel.app/**](https://projectmernfull-stack-roan.vercel.app/) | ✅ 100% Live on Vercel |
+| **4** | **README.md with Setup Instructions** | [`README.md` Setup & Quick Start Guide](#-quick-start-guide) | ✅ Detailed Instructions & Architecture |
+| **5** | **Database Design & API Documentation** | DB Design: [`docs/Database_Design.pdf`](./docs/Database_Design.pdf)<br>API Docs: [`docs/API_Documentation.pdf`](./docs/API_Documentation.pdf) | ✅ Verified (16 Collections & Full API) |
+| **6** | **Application Screenshots** | Directory: [`docs/screenshots/`](./docs/screenshots/)<br>Embedded Visuals: [Interface Walkthrough](#-application-interface--visual-walkthrough) | ✅ All 5 Pages Tracked & Displayed |
+
+---
+
 ## 📁 Repository Structure
 
 The repository is organized cleanly into modular, isolated domains following industry best practices:
