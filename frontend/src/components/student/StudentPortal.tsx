@@ -58,7 +58,7 @@ import {
   ExamQuestion,
   ExamAttempt
 } from '../../types';
-import { EduTrackApi, isMatchingSection, isMatchingDepartment } from '../../services/apiService';
+import { EduTrackApi, isMatchingSection, isMatchingDepartment, parseSemester } from '../../services/apiService';
 import { Card3D } from '../common/Card3D';
 
 export function normalizeQuestionOptions(options: any): { key: string; text: string }[] {
@@ -312,13 +312,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       return;
     }
 
-    // Enforce expiry validation
+    // Enforce expiry validation: only expire if exam date has already passed
     const todayStr = new Date().toISOString().split('T')[0];
-    const now = new Date();
-    const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const isPastDate = exam.examDate < todayStr;
-    const isPastTime = exam.examDate === todayStr && exam.endTime && currentTimeStr > exam.endTime;
-    if (isPastDate || isPastTime) {
+    const isPastDate = Boolean(exam.examDate && exam.examDate < todayStr);
+    if (isPastDate) {
       alert('This online examination / quiz has expired. Submissions are no longer accepted.');
       return;
     }
@@ -1227,9 +1224,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
       if (hasMyAttempt) return true;
 
-      if (exam.status !== 'PUBLISHED' && exam.status !== 'CLOSED' && !exam.resultsReleased) return false;
+      const isStatusEligible = !exam.status || exam.status === 'PUBLISHED' || exam.status === 'ACTIVE' || exam.status === 'SCHEDULED' || exam.status === 'DRAFT' || exam.status === 'CLOSED' || Boolean(exam.resultsReleased);
+      if (!isStatusEligible) return false;
       const deptMatch = isMatchingDepartment(exam.departmentId, profile.departmentId);
-      const semMatch = Number(exam.semester) === Number(profile.currentSemester);
+      const semMatch = parseSemester(exam.semester) === parseSemester(profile.currentSemester);
       const secMatch = isMatchingSection(profile.section, exam.section);
       return deptMatch && semMatch && secMatch;
     }).sort((a, b) => {
@@ -1805,20 +1803,17 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     const isConcludedByResults = Boolean(exam.resultsReleased || exam.status === 'CLOSED');
 
                     const todayStr = new Date().toISOString().split('T')[0];
-                    const now = new Date();
-                    const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-                    const isPastDate = exam.examDate < todayStr;
-                    const isPastTime = exam.examDate === todayStr && exam.endTime && currentTimeStr > exam.endTime;
-                    const isExpired = !isCompleted && !isInProgress && (isPastDate || isPastTime);
+                    const isPastDate = Boolean(exam.examDate && exam.examDate < todayStr);
+                    const isExpired = !isCompleted && !isInProgress && isPastDate;
 
                     if (onlineExamFilter === 'completed') return isCompleted || (Boolean(myAttempt) && Boolean(exam.resultsReleased));
                     if (onlineExamFilter === 'available') {
                       if (isConcludedByResults || isCompleted) return false;
-                      return isInProgress || !isExpired;
+                      return isInProgress || !isPastDate;
                     }
                     if (onlineExamFilter === 'upcoming') {
                       if (isConcludedByResults || isCompleted) return false;
-                      return exam.examDate > todayStr;
+                      return Boolean(exam.examDate && exam.examDate > todayStr);
                     }
                     if (onlineExamFilter === 'expired') return isExpired || (!isCompleted && isConcludedByResults);
                     return true;
@@ -1847,11 +1842,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     const isConcludedByResults = Boolean(exam.resultsReleased || exam.status === 'CLOSED');
 
                     const todayStr = new Date().toISOString().split('T')[0];
-                    const now = new Date();
-                    const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-                    const isPastDate = exam.examDate < todayStr;
-                    const isPastTime = exam.examDate === todayStr && exam.endTime && currentTimeStr > exam.endTime;
-                    const isExpired = !isCompleted && !isInProgress && (isPastDate || isPastTime);
+                    const isPastDate = Boolean(exam.examDate && exam.examDate < todayStr);
+                    const isExpired = !isCompleted && !isInProgress && isPastDate;
 
                     const passedBool = Boolean(myAttempt?.passed ?? (myAttempt as any)?.isPassed);
                     const scoreVal = myAttempt?.score ?? (myAttempt as any)?.totalMarksObtained ?? 0;

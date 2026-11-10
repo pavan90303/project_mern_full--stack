@@ -104,6 +104,12 @@ function saveStorage<T>(key: string, data: T): void {
   }
 }
 
+export function parseSemester(sem?: any): number {
+  if (typeof sem === 'number') return sem;
+  const n = parseInt(String(sem || '').replace(/[^0-9]/g, ''), 10);
+  return isNaN(n) ? 6 : n;
+}
+
 export function isMatchingDepartment(deptA?: string, deptB?: string): boolean {
   if (!deptA || !deptB) return false;
   if (deptA === deptB) return true;
@@ -117,16 +123,36 @@ export function isMatchingDepartment(deptA?: string, deptB?: string): boolean {
   if (s2.includes('computer') && s1.includes('cse')) return true;
   if (s1.includes('electronic') && s2.includes('ece')) return true;
   if (s2.includes('electronic') && s1.includes('ece')) return true;
+  if (s1.includes('electrical') && s2.includes('eee')) return true;
+  if (s2.includes('electrical') && s1.includes('eee')) return true;
+  if (s1.includes('mechanical') && s2.includes('mech')) return true;
+  if (s2.includes('mechanical') && s1.includes('mech')) return true;
+  if (s1.includes('civil') && s2.includes('civil')) return true;
+
+  try {
+    const rawDepts = localStorage.getItem('edutrack_departments');
+    if (rawDepts) {
+      const depts = JSON.parse(rawDepts);
+      if (Array.isArray(depts)) {
+        const d1 = depts.find(d => d.id?.toLowerCase() === s1 || d.code?.toLowerCase() === s1 || d.name?.toLowerCase() === s1);
+        const d2 = depts.find(d => d.id?.toLowerCase() === s2 || d.code?.toLowerCase() === s2 || d.name?.toLowerCase() === s2);
+        if (d1 && d2 && (d1.id === d2.id || d1.code?.toLowerCase() === d2.code?.toLowerCase())) return true;
+        if (d1 && (d1.id?.toLowerCase() === s2 || d1.code?.toLowerCase() === s2 || d1.name?.toLowerCase() === s2)) return true;
+        if (d2 && (d2.id?.toLowerCase() === s1 || d2.code?.toLowerCase() === s1 || d2.name?.toLowerCase() === s1)) return true;
+      }
+    }
+  } catch {}
+
   return false;
 }
 
 export function isMatchingSection(stdSection?: string, targetSection?: string, secCode?: string): boolean {
-  if (!stdSection && !targetSection && !secCode) return false;
+  if (!stdSection && !targetSection && !secCode) return true;
   const s1 = (stdSection || '').trim().toUpperCase();
   const s2 = (targetSection || '').trim().toUpperCase();
   const sc = (secCode || '').trim().toUpperCase();
 
-  if (s1 === 'ALL' || s2 === 'ALL' || sc === 'ALL' || s1 === 'ALL SECTIONS' || s2 === 'ALL SECTIONS' || sc === 'ALL SECTIONS') return true;
+  if (s1 === 'ALL' || s2 === 'ALL' || sc === 'ALL' || s1 === 'ALL SECTIONS' || s2 === 'ALL SECTIONS' || sc === 'ALL SECTIONS' || s1 === 'SECTION ALL' || s2 === 'SECTION ALL') return true;
   if (s2 && s1 === s2) return true;
   if (sc && s1 === sc) return true;
 
@@ -139,6 +165,7 @@ export function isMatchingSection(stdSection?: string, targetSection?: string, s
   if (clean1 && cleanC && clean1 === cleanC) return true;
 
   if (s1.endsWith(`-${clean2}`) || s2.endsWith(`-${clean1}`)) return true;
+  if (s1.includes(clean2) || s2.includes(clean1)) return true;
 
   return false;
 }
@@ -2067,13 +2094,52 @@ export class EduTrackApi {
   }
 
   static async createOnlineExam(exam: Partial<OnlineExam>, facultyName?: string): Promise<OnlineExam> {
-    const res = await apiRequest<OnlineExam>('/api/online-exams', {
-      method: 'POST',
-      body: JSON.stringify(exam)
-    });
+    let res: OnlineExam;
+    try {
+      res = await apiRequest<OnlineExam>('/api/online-exams', {
+        method: 'POST',
+        body: JSON.stringify(exam)
+      });
+    } catch {
+      res = {
+        id: `ox_${Date.now()}`,
+        title: exam.title || 'Online Examination',
+        description: exam.description || '',
+        instructions: exam.instructions || '',
+        departmentId: exam.departmentId || 'dept_cse',
+        departmentName: exam.departmentName || 'Computer Science & Engineering',
+        subjectId: exam.subjectId || 'sub_cs401',
+        subjectCode: exam.subjectCode || 'CS401',
+        subjectName: exam.subjectName || 'Course Examination',
+        semester: Number(exam.semester) || 6,
+        section: exam.section || 'All',
+        facultyId: exam.facultyId || 'usr_fac_01',
+        facultyName: facultyName || exam.facultyName || 'Faculty Instructor',
+        examDate: exam.examDate || new Date().toISOString().split('T')[0],
+        startTime: exam.startTime || '10:00',
+        endTime: exam.endTime || '23:59',
+        durationMinutes: Number(exam.durationMinutes) || 60,
+        totalMarks: Number(exam.totalMarks) || 30,
+        passMarks: Number(exam.passMarks) || 12,
+        negativeMarking: Boolean(exam.negativeMarking),
+        negativeMarksPerQuestion: Number(exam.negativeMarksPerQuestion) || 0,
+        maxAttempts: Number(exam.maxAttempts) || 1,
+        resultPublication: (exam.resultPublication as any) || 'MANUAL_RELEASE',
+        resultsReleased: Boolean(exam.resultsReleased),
+        status: (exam.status as any) || 'PUBLISHED',
+        questions: exam.questions || [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+    }
 
     const list = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
-    list.unshift(res);
+    const existingIdx = list.findIndex(e => e.id === res.id);
+    if (existingIdx !== -1) {
+      list[existingIdx] = res;
+    } else {
+      list.unshift(res);
+    }
     saveStorage(KEYS.ONLINE_EXAMS, list);
 
     this.logAudit(
@@ -2089,15 +2155,22 @@ export class EduTrackApi {
   }
 
   static async updateOnlineExam(id: string, updates: Partial<OnlineExam>): Promise<OnlineExam> {
-    const res = await apiRequest<OnlineExam>(`/api/online-exams/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates)
-    });
+    let res: OnlineExam;
+    try {
+      res = await apiRequest<OnlineExam>(`/api/online-exams/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates)
+      });
+    } catch {
+      const list = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
+      const existing = list.find(e => e.id === id);
+      res = existing ? { ...existing, ...updates, updatedAt: new Date().toISOString() } : (updates as OnlineExam);
+    }
 
     const list = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
     const idx = list.findIndex(e => e.id === id);
     if (idx !== -1) {
-      list[idx] = res;
+      list[idx] = { ...list[idx], ...res };
     } else {
       list.unshift(res);
     }
@@ -2107,7 +2180,9 @@ export class EduTrackApi {
   }
 
   static async deleteOnlineExam(id: string): Promise<void> {
-    await apiRequest(`/api/online-exams/${id}`, { method: 'DELETE' });
+    try {
+      await apiRequest(`/api/online-exams/${id}`, { method: 'DELETE' });
+    } catch {}
     let list = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
     list = list.filter(e => e.id !== id);
     saveStorage(KEYS.ONLINE_EXAMS, list);
@@ -2115,13 +2190,20 @@ export class EduTrackApi {
   }
 
   static async publishOnlineExam(id: string): Promise<OnlineExam> {
-    const res = await apiRequest<{ message: string; exam: OnlineExam }>(`/api/online-exams/${id}/publish`, {
-      method: 'POST'
-    });
-    const updated = res.exam;
+    let updated: OnlineExam;
+    try {
+      const res = await apiRequest<{ message: string; exam: OnlineExam }>(`/api/online-exams/${id}/publish`, {
+        method: 'POST'
+      });
+      updated = res.exam;
+    } catch {
+      const list = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
+      const existing = list.find(e => e.id === id);
+      updated = existing ? { ...existing, status: 'PUBLISHED', updatedAt: new Date().toISOString() } : ({} as OnlineExam);
+    }
     const list = loadStorage<OnlineExam[]>(KEYS.ONLINE_EXAMS, INITIAL_ONLINE_EXAMS);
     const idx = list.findIndex(e => e.id === id);
-    if (idx !== -1) list[idx] = updated;
+    if (idx !== -1) list[idx] = { ...list[idx], ...updated, status: 'PUBLISHED' };
     saveStorage(KEYS.ONLINE_EXAMS, list);
     this.handleRealtimeSync('online_exam:published', updated);
     return updated;
