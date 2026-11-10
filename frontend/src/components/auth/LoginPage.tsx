@@ -26,9 +26,38 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onBackToLanding,
   initialRole = 'admin'
 }) => {
-  const [activeRole, setActiveRole] = useState<UserRole>(initialRole);
-  const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
+  const [activeRole, setActiveRole] = useState<UserRole>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const r = (params.get('role') || params.get('login'))?.toLowerCase();
+      if (r === 'admin' || r === 'faculty' || r === 'student') return r;
+    } catch {}
+    return initialRole;
+  });
+  const [identifier, setIdentifier] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('demo') === '1' || params.get('demo') === 'true' || params.get('autofill') === 'true') {
+        const r = (params.get('role') || params.get('login') || initialRole)?.toLowerCase();
+        if (r === 'faculty') return 'faculty@edutrack.edu';
+        if (r === 'student') return '990000003';
+        return 'admin@edutrack.edu';
+      }
+    } catch {}
+    return '';
+  });
+  const [password, setPassword] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('demo') === '1' || params.get('demo') === 'true' || params.get('autofill') === 'true') {
+        const r = (params.get('role') || params.get('login') || initialRole)?.toLowerCase();
+        if (r === 'faculty') return 'faculty123';
+        if (r === 'student') return 'student123';
+        return 'admin123';
+      }
+    } catch {}
+    return '';
+  });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);

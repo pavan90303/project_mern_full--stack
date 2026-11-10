@@ -13,10 +13,24 @@ import { Radio, CheckCircle, Info, AlertCircle, X } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(EduTrackApi.getActiveUser());
-  const [view, setView] = useState<'landing' | 'login' | 'portal'>(
-    EduTrackApi.getActiveUser() ? 'portal' : 'landing'
-  );
-  const [loginRole, setLoginRole] = useState<UserRole>('admin');
+  const [view, setView] = useState<'landing' | 'login' | 'portal'>(() => {
+    if (EduTrackApi.getActiveUser()) return 'portal';
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('role') || params.get('login') || params.get('view') === 'login' || params.get('page') === 'login') {
+        return 'login';
+      }
+    } catch {}
+    return 'landing';
+  });
+  const [loginRole, setLoginRole] = useState<UserRole>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const r = (params.get('role') || params.get('login'))?.toLowerCase();
+      if (r === 'admin' || r === 'faculty' || r === 'student') return r;
+    } catch {}
+    return 'admin';
+  });
   const [currentPage, setCurrentPage] = useState<string>('dashboard');
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');

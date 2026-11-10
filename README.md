@@ -31,6 +31,20 @@
 
 ---
 
+## 🔑 Live Demo Links & Role Login Portals
+
+You can test each institutional portal directly with pre-configured demo credentials or direct one-click authentication:
+
+| Role Portal | Direct Demo Login Link | Demo Username / Identifier | Password | Primary Capabilities |
+|:---|:---:|:---:|:---:|:---|
+| **🛡️ System Administrator** | [**Launch Admin Portal**](https://projectmernfull-stack-roan.vercel.app/?role=admin&demo=true) | `admin@edutrack.edu` | `admin123` | Department curricula, student & faculty management, master timetable conflict validation, audit ledger |
+| **👨‍🏫 Teaching Faculty** | [**Launch Faculty Portal**](https://projectmernfull-stack-roan.vercel.app/?role=faculty&demo=true) | `faculty@edutrack.edu`<br>*(or `EMP-101`)* | `faculty123` | Section-wise attendance (today's date locked), syllabus material upload, student submission grading, MCQ test publishing |
+| **🎓 Enrolled Student** | [**Launch Student Portal**](https://projectmernfull-stack-roan.vercel.app/?role=student&demo=true) | `990000003`<br>*(or `student@edutrack.edu`)* | `student123` | Dynamic session attendance, class timetables, material downloads, online MCQ exams & released scorecards |
+
+> **💡 Quick Tip:** Clicking any **Direct Demo Login Link** above automatically opens the application directly on that role's login tab with credentials ready. You can also visit the standard [Landing Page](https://projectmernfull-stack-roan.vercel.app/) and sign in manually.
+
+---
+
 ## 📁 Repository Structure
 
 The repository is organized cleanly into modular, isolated domains following industry best practices:
@@ -225,7 +239,11 @@ npm run build
 
 ## 🌐 Production Deployment
 
-- **Live Frontend (Vercel):** [https://projectmernfull-stack-roan.vercel.app/](https://projectmernfull-stack-roan.vercel.app/)
+- **Live Application URL:** [https://projectmernfull-stack-roan.vercel.app/](https://projectmernfull-stack-roan.vercel.app/)
+- **Direct Role Demo Access:**
+  - **Administrator Portal:** [https://projectmernfull-stack-roan.vercel.app/?role=admin&demo=true](https://projectmernfull-stack-roan.vercel.app/?role=admin&demo=true) (`admin@edutrack.edu` / `admin123`)
+  - **Faculty Portal:** [https://projectmernfull-stack-roan.vercel.app/?role=faculty&demo=true](https://projectmernfull-stack-roan.vercel.app/?role=faculty&demo=true) (`faculty@edutrack.edu` / `faculty123`)
+  - **Student Portal:** [https://projectmernfull-stack-roan.vercel.app/?role=student&demo=true](https://projectmernfull-stack-roan.vercel.app/?role=student&demo=true) (`990000003` / `student123`)
 - **API Server:** Node.js + Express cluster with Socket.IO real-time gateway.
 - **Database:** MongoDB Atlas cloud cluster with automated daily snapshots and TLS 1.3 encryption.
 
