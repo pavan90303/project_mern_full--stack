@@ -50,12 +50,42 @@ Edu-Track-Student-Academic-Management-System/
 │   ├── socket.ts             # WebSocket broadcast handlers and room managers
 │   └── package.json          # Backend dependencies and standalone scripts
 │
-└── docs/                     # Official project engineering documents
-    ├── Project_PPT.pdf               # Executive presentation slide deck (12 Slides)
-    ├── Project_Documentation.pdf     # Academic SRS & System Architecture specification
-    ├── Database_Design.pdf           # Entity-Relationship models & 16-collection schemas
-    └── API_Documentation.pdf         # REST endpoints & Socket.IO event reference
+├── docs/                     # Official project engineering documents
+│   ├── screenshots/          # Application walkthrough UI screenshots
+│   │   ├── 01_landing_page.jpg          # Page 1: Institutional landing overview
+│   │   ├── 02_login_page.png            # Page 2: Role authentication portal
+│   │   ├── 03_admin_dashboard.jpg       # Page 3: Administrator central operations
+│   │   ├── 04_faculty_dashboard.jpg     # Page 4: Teaching faculty instructional workspace
+│   │   └── 05_student_dashboard.jpg     # Page 5: Student academic tracking workspace
+│   ├── Project_PPT.pdf               # Executive presentation slide deck (12 Slides)
+│   ├── Project_Documentation.pdf     # Academic SRS & System Architecture specification
+│   ├── Database_Design.pdf           # Entity-Relationship models & 16-collection schemas
+│   └── API_Documentation.pdf         # REST endpoints & Socket.IO event reference
 ```
+
+---
+
+## 📸 Application Interface & Visual Walkthrough
+
+### 1. Landing Page (Institutional Portal Entry)
+Official university landing page introducing academic operations, campus governance, and quick entry into the role-based system.
+![Landing Page](docs/screenshots/01_landing_page.jpg)
+
+### 2. Institutional Authentication (Admin, Faculty, Student)
+Multi-role institutional login portal with email/roll credentials, credential validation, and Google Authentication integration.
+![Institutional Login](docs/screenshots/02_login_page.png)
+
+### 3. Institutional Administrator Operations Central
+Comprehensive system governance dashboard managing student/faculty rosters, department curricula, class timetables with conflict engine, and real-time audit ledger.
+![Administrator Dashboard](docs/screenshots/03_admin_dashboard.jpg)
+
+### 4. Teaching Faculty Instructional Workspace
+Faculty dashboard displaying teaching sections, course assignments, same-day anti-tamper attendance logging, study material uploads, and online MCQ examinations.
+![Faculty Dashboard](docs/screenshots/04_faculty_dashboard.jpg)
+
+### 5. Student Academic Experience & Live Tracking
+Student portal featuring live attendance calculated strictly from conducted faculty sessions, personalized class timetables, section materials, and online examination assessments.
+![Student Dashboard](docs/screenshots/05_student_dashboard.jpg)
 
 ---
 
