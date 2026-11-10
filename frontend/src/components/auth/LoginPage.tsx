@@ -40,47 +40,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setPassword('');
   };
 
-  const handleQuickDemoLogin = async (role: UserRole) => {
-    setError(null);
-    let demoId = 'admin@edutrack.edu';
-    let demoPass = 'admin123';
-    if (role === 'faculty') {
-      demoId = 'faculty@edutrack.edu';
-      demoPass = 'faculty123';
-    } else if (role === 'student') {
-      demoId = '990000003';
-      demoPass = 'student123';
-    }
-
-    setIdentifier(demoId);
-    setPassword(demoPass);
-    setIsLoading(true);
-
-    try {
-      const res = await EduTrackApi.loginAsync(demoId, demoPass, role);
-      setIsLoading(false);
-
-      if (res.success && res.user) {
-        onLoginSuccess(res.user);
-      } else {
-        const fallbackUser = EduTrackApi.login(demoId, demoPass, role);
-        if (fallbackUser) {
-          onLoginSuccess(fallbackUser);
-        } else {
-          setError(res.error || 'Failed to authenticate demo account.');
-        }
-      }
-    } catch {
-      setIsLoading(false);
-      const fallbackUser = EduTrackApi.login(demoId, demoPass, role);
-      if (fallbackUser) {
-        onLoginSuccess(fallbackUser);
-      } else {
-        setError('Network failure during demo login. Please try again.');
-      }
-    }
-  };
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -244,48 +203,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <span className="leading-snug">{error}</span>
             </div>
           )}
-
-          {/* Quick Demo Access Bar */}
-          <div className="mb-5 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-indigo-50/90 via-purple-50/70 to-blue-50/90 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-blue-950/40 border border-indigo-100 dark:border-indigo-900/60 shadow-xs">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-950 dark:text-indigo-200">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                <span>Quick Demo Access ({roleConfig.tabLabel})</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold uppercase tracking-wide text-indigo-600 dark:text-indigo-400 bg-white/90 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-slate-700">
-                Demo
-              </span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
-              <div className="text-[11px] font-mono text-slate-600 dark:text-slate-300">
-                {activeRole === 'admin' && (
-                  <span>
-                    Email: <strong className="text-slate-900 dark:text-white">admin@edutrack.edu</strong> · Pass: <strong className="text-slate-900 dark:text-white">admin123</strong>
-                  </span>
-                )}
-                {activeRole === 'faculty' && (
-                  <span>
-                    Email: <strong className="text-slate-900 dark:text-white">faculty@edutrack.edu</strong> · Pass: <strong className="text-slate-900 dark:text-white">faculty123</strong>
-                  </span>
-                )}
-                {activeRole === 'student' && (
-                  <span>
-                    Roll: <strong className="text-slate-900 dark:text-white">990000003</strong> · Pass: <strong className="text-slate-900 dark:text-white">student123</strong>
-                  </span>
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleQuickDemoLogin(activeRole)}
-                disabled={isLoading}
-                className="px-3.5 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
-              >
-                <span>⚡ One-Click Demo Login</span>
-              </button>
-            </div>
-          </div>
 
           {/* Email ID & Password Form (Available for all roles, upside of Google Sign In) */}
           <form onSubmit={handleLogin} className="space-y-4">
