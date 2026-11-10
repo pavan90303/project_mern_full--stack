@@ -95,7 +95,9 @@ export async function createBackendApp() {
   app.get('/', (req, res, next) => {
     // If frontend dist directory exists, defer to static frontend handler below
     const possibleDistPaths = [
+      path.resolve(process.cwd(), 'frontend/dist'),
       path.resolve(process.cwd(), 'dist'),
+      path.resolve(__dirname, '../frontend/dist'),
       path.resolve(process.cwd(), '../dist'),
       path.resolve(__dirname, '../dist')
     ];
@@ -137,7 +139,9 @@ export async function createBackendApp() {
     }
   } else {
     const possibleDistPaths = [
+      path.resolve(process.cwd(), 'frontend/dist'),
       path.resolve(process.cwd(), 'dist'),
+      path.resolve(__dirname, '../frontend/dist'),
       path.resolve(process.cwd(), '../dist'),
       path.resolve(__dirname, '../dist')
     ];

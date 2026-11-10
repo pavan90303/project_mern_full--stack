@@ -1,15 +1,17 @@
 {
-  "name": "react-example",
+  "name": "edu-track-student-academic-management-system",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "start": "tsx server.ts",
-    "build": "vite build",
-    "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "dev": "npm --prefix frontend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "build": "npm --prefix frontend run build && node -e \"const fs=require('fs'); if(fs.existsSync('frontend/dist')){fs.cpSync('frontend/dist','dist',{recursive:true});}\"",
+    "build:frontend": "npm --prefix frontend run build",
+    "start": "tsx backend/server.ts",
+    "preview": "npm --prefix frontend run preview",
+    "lint": "npm --prefix frontend run lint"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
