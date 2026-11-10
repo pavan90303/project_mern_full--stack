@@ -10,44 +10,6 @@ export const parseSemester = (sem: any): number => {
   return isNaN(n) ? 6 : n;
 };
 
-export const generateDefaultQuestions = (subjectName?: string, totalMarks: number = 30): any[] => {
-  const safeName = subjectName || 'this subject';
-  const qMarks = Math.max(1, Math.floor(totalMarks / 2));
-  const q2Marks = totalMarks - qMarks;
-  return [
-    {
-      id: `q_${Date.now()}_1`,
-      questionNumber: 1,
-      questionText: `Which fundamental principle is central to ${safeName}?`,
-      options: [
-        { key: 'A', text: 'Decentralized state replication, resilience, and high availability' },
-        { key: 'B', text: 'Linear unbuffered single-thread execution' },
-        { key: 'C', text: 'Complete elimination of secondary storage systems' },
-        { key: 'D', text: 'Manual analog hardware reconciliation' }
-      ],
-      correctAnswer: 'A',
-      marks: qMarks,
-      negativeMarks: 0,
-      explanation: `Core design in ${safeName} emphasizes high availability, state resilience, and robust operational protocols.`
-    },
-    {
-      id: `q_${Date.now()}_2`,
-      questionNumber: 2,
-      questionText: `In ${safeName}, how are concurrent operations or transactions reliably coordinated?`,
-      options: [
-        { key: 'A', text: 'Random nondeterministic polling' },
-        { key: 'B', text: 'Atomic protocols, consensus algorithms, and structured indexing' },
-        { key: 'C', text: 'Ignoring state divergence across nodes' },
-        { key: 'D', text: 'Disabling error detection mechanisms' }
-      ],
-      correctAnswer: 'B',
-      marks: q2Marks,
-      negativeMarks: 0,
-      explanation: 'Consensus algorithms, atomic protocols, and indexing ensure deterministic coordination across workloads.'
-    }
-  ];
-};
-
 export const isMatchingDepartment = (d1?: string, d2?: string, departments?: any[]): boolean => {
   if (!d1 || !d2) return false;
   if (d1 === d2) return true;
@@ -218,7 +180,7 @@ router.get('/', (req: Request, res: Response) => {
       );
       if (hasAttempt) return true;
 
-      const isStatusEligible = !e.status || e.status === 'PUBLISHED' || e.status === 'ACTIVE' || e.status === 'SCHEDULED' || e.status === 'DRAFT' || e.status === 'COMPLETED' || e.status === 'CLOSED' || Boolean(e.resultsReleased);
+      const isStatusEligible = e.status === 'PUBLISHED' || e.status === 'ACTIVE' || e.status === 'COMPLETED' || e.status === 'CLOSED' || Boolean(e.resultsReleased);
       const isDeptEligible = isMatchingDepartment(e.departmentId, student.departmentId, data.departments);
       const isSemEligible = parseSemester(e.semester) === parseSemester(student.currentSemester);
       const isSecEligible = isMatchingSection(e.section, student.section);
@@ -590,22 +552,14 @@ router.post('/:id/publish', (req: Request, res: Response) => {
   }
 
   if (!exam.questions || exam.questions.length === 0) {
-    exam.questions = generateDefaultQuestions(exam.subjectName || exam.title, Number(exam.totalMarks) || 30);
-  } else {
-    const sumMarks = exam.questions.reduce((acc: number, q: any) => acc + (q.marks || 0), 0);
-    if (sumMarks !== Number(exam.totalMarks)) {
-      const qCount = exam.questions.length;
-      const baseMark = Math.max(1, Math.floor(Number(exam.totalMarks) / qCount));
-      let currentSum = 0;
-      exam.questions.forEach((q: any, i: number) => {
-        if (i === qCount - 1) {
-          q.marks = Number(exam.totalMarks) - currentSum;
-        } else {
-          q.marks = baseMark;
-          currentSum += baseMark;
-        }
-      });
-    }
+    return res.status(400).json({ error: 'Please add at least one question before publishing.' });
+  }
+
+  const sumMarks = exam.questions.reduce((acc: number, q: any) => acc + (q.marks || 0), 0);
+  if (sumMarks !== Number(exam.totalMarks)) {
+    return res.status(400).json({
+      error: `Question marks sum (${sumMarks}) must match total examination marks (${exam.totalMarks}).`
+    });
   }
 
   exam.status = 'PUBLISHED';
@@ -843,9 +797,7 @@ router.post('/:id/start', (req: Request, res: Response) => {
 
   // Ensure questions exist so student can write the exam
   if (!exam.questions || exam.questions.length === 0) {
-    exam.questions = generateDefaultQuestions(exam.subjectName || exam.title, Number(exam.totalMarks) || 30);
-    exam.status = 'PUBLISHED';
-    dbStore.save();
+    return res.status(400).json({ error: 'This examination does not have any questions configured yet.' });
   }
 
   // Check if results are released or examination is closed
@@ -855,11 +807,8 @@ router.post('/:id/start', (req: Request, res: Response) => {
 
   // Check if examination has expired
   const todayStr = new Date().toISOString().split('T')[0];
-  const now = new Date();
-  const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const isPastDate = exam.examDate < todayStr;
-  const isPastTime = exam.examDate === todayStr && exam.endTime && currentTimeStr > exam.endTime;
-  if (isPastDate || isPastTime) {
+  if (isPastDate) {
     return res.status(400).json({ error: 'This examination has expired. Deadline has passed.' });
   }
 

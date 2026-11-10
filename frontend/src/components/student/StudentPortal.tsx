@@ -1224,7 +1224,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
       if (hasMyAttempt) return true;
 
-      const isStatusEligible = !exam.status || exam.status === 'PUBLISHED' || exam.status === 'ACTIVE' || exam.status === 'SCHEDULED' || exam.status === 'DRAFT' || exam.status === 'CLOSED' || Boolean(exam.resultsReleased);
+      const isStatusEligible = exam.status === 'PUBLISHED' || exam.status === 'ACTIVE' || exam.status === 'COMPLETED' || exam.status === 'CLOSED' || Boolean(exam.resultsReleased);
       if (!isStatusEligible) return false;
       const deptMatch = isMatchingDepartment(exam.departmentId, profile.departmentId);
       const semMatch = parseSemester(exam.semester) === parseSemester(profile.currentSemester);
