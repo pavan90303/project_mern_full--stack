@@ -36,7 +36,49 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const handleRoleChange = (role: UserRole) => {
     setActiveRole(role);
     setError(null);
-    // Keep identifier and password clean when switching roles
+    setIdentifier('');
+    setPassword('');
+  };
+
+  const handleQuickDemoLogin = async (role: UserRole) => {
+    setError(null);
+    let demoId = 'admin@edutrack.edu';
+    let demoPass = 'admin123';
+    if (role === 'faculty') {
+      demoId = 'faculty@edutrack.edu';
+      demoPass = 'faculty123';
+    } else if (role === 'student') {
+      demoId = '990000003';
+      demoPass = 'student123';
+    }
+
+    setIdentifier(demoId);
+    setPassword(demoPass);
+    setIsLoading(true);
+
+    try {
+      const res = await EduTrackApi.loginAsync(demoId, demoPass, role);
+      setIsLoading(false);
+
+      if (res.success && res.user) {
+        onLoginSuccess(res.user);
+      } else {
+        const fallbackUser = EduTrackApi.login(demoId, demoPass, role);
+        if (fallbackUser) {
+          onLoginSuccess(fallbackUser);
+        } else {
+          setError(res.error || 'Failed to authenticate demo account.');
+        }
+      }
+    } catch {
+      setIsLoading(false);
+      const fallbackUser = EduTrackApi.login(demoId, demoPass, role);
+      if (fallbackUser) {
+        onLoginSuccess(fallbackUser);
+      } else {
+        setError('Network failure during demo login. Please try again.');
+      }
+    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -100,9 +142,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       inputLabel: 'Administrator Email',
       inputPlaceholder: 'admin@edutrack.edu',
       inputIcon: Mail,
-      buttonText: 'Sign in with Google (Admin Portal)',
+      buttonText: 'Access Administrator Portal',
       infoTitle: 'System Administrator Portal Access',
-      infoDesc: 'Protected by Google Authentication (Firebase). Only institutional accounts provisioned with active Administrator authorization in MongoDB can access this portal.'
+      infoDesc: 'Protected by institutional credentials & Google Authentication (Firebase). Only institutional accounts provisioned with active Administrator authorization in MongoDB can access this portal.'
     },
     faculty: {
       tabLabel: 'Faculty Login',
@@ -203,23 +245,139 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
           )}
 
-          {/* Admin Google Sign-In or Faculty/Student Form */}
-          {activeRole === 'admin' ? (
-            <div className="space-y-4 py-2">
-              <div className="p-3.5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 text-xs text-indigo-900 dark:text-indigo-200">
-                <p className="font-bold text-slate-800 dark:text-slate-100 mb-1">
-                  Administrator Google Authentication
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  System Administrator access requires authentication through verified institutional Google accounts managed via Firebase.
-                </p>
+          {/* Quick Demo Access Bar */}
+          <div className="mb-5 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-indigo-50/90 via-purple-50/70 to-blue-50/90 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-blue-950/40 border border-indigo-100 dark:border-indigo-900/60 shadow-xs">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-950 dark:text-indigo-200">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <span>Quick Demo Access ({roleConfig.tabLabel})</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wide text-indigo-600 dark:text-indigo-400 bg-white/90 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-slate-700">
+                Demo
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+              <div className="text-[11px] font-mono text-slate-600 dark:text-slate-300">
+                {activeRole === 'admin' && (
+                  <span>
+                    Email: <strong className="text-slate-900 dark:text-white">admin@edutrack.edu</strong> · Pass: <strong className="text-slate-900 dark:text-white">admin123</strong>
+                  </span>
+                )}
+                {activeRole === 'faculty' && (
+                  <span>
+                    Email: <strong className="text-slate-900 dark:text-white">faculty@edutrack.edu</strong> · Pass: <strong className="text-slate-900 dark:text-white">faculty123</strong>
+                  </span>
+                )}
+                {activeRole === 'student' && (
+                  <span>
+                    Roll: <strong className="text-slate-900 dark:text-white">990000003</strong> · Pass: <strong className="text-slate-900 dark:text-white">student123</strong>
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleQuickDemoLogin(activeRole)}
+                disabled={isLoading}
+                className="px-3.5 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <span>⚡ One-Click Demo Login</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Email ID & Password Form (Available for all roles, upside of Google Sign In) */}
+          <form onSubmit={handleLogin} className="space-y-4">
+            
+            {/* Primary Identifier */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                {roleConfig.inputLabel}
+              </label>
+              <div className="relative">
+                <InputIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  required
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder={roleConfig.inputPlaceholder}
+                  autoComplete="username"
+                  className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 font-medium min-h-[44px] transition-colors"
+                />
+              </div>
+            </div>
+
+            {/* Password */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Account Password
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  className="w-full pl-10 pr-10 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 font-mono min-h-[44px] transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1 cursor-pointer"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Submit CTA Button */}
+            <div className="pt-1">
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-3 px-4 text-xs sm:text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 min-h-[46px] cursor-pointer"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Authenticating Identity...</span>
+                  </>
+                ) : (
+                  <span>{roleConfig.buttonText}</span>
+                )}
+              </button>
+            </div>
+          </form>
+
+          {/* Google Sign-in for Administrator (positioned downside of Email/Password) */}
+          {activeRole === 'admin' && (
+            <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200 dark:border-slate-700" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-white dark:bg-slate-900 px-3 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                    Or continue with Google
+                  </span>
+                </div>
               </div>
 
               <button
                 type="button"
                 onClick={handleGoogleAdminLogin}
                 disabled={isLoading}
-                className="w-full py-3 px-4 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs transition-all flex items-center justify-center gap-3 min-h-[48px] cursor-pointer"
+                className="w-full py-2.5 px-4 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs transition-all flex items-center justify-center gap-3 min-h-[46px] cursor-pointer"
               >
                 {isLoading ? (
                   <>
@@ -228,7 +386,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   </>
                 ) : (
                   <>
-                    <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                       <path
                         fill="#4285F4"
                         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -251,77 +409,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 )}
               </button>
             </div>
-          ) : (
-            <form onSubmit={handleLogin} className="space-y-4">
-              
-              {/* Primary Identifier */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  {roleConfig.inputLabel}
-                </label>
-                <div className="relative">
-                  <InputIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    required
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder={roleConfig.inputPlaceholder}
-                    autoComplete="username"
-                    className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 font-medium min-h-[44px] transition-colors"
-                  />
-                </div>
-              </div>
-
-              {/* Password */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Account Password
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                    className="w-full pl-10 pr-10 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 font-mono min-h-[44px] transition-colors"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Submit CTA Button */}
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full py-3 px-4 text-xs sm:text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 min-h-[46px] cursor-pointer"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Authenticating Identity...</span>
-                    </>
-                  ) : (
-                    <span>{roleConfig.buttonText}</span>
-                  )}
-                </button>
-              </div>
-            </form>
           )}
 
           {/* Institutional Role Information Box (Replaces Initial Setup Credentials) */}

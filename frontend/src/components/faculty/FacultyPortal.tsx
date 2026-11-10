@@ -813,7 +813,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
       records
     }, currentUser.name);
 
-    setAttendanceSavedMessage(`Attendance session saved for ${selectedSubjectCode} (${records.length} students recorded).`);
+    setAttendanceSavedMessage(`Attendance session submitted for ${selectedSubjectCode} (${records.length} students recorded).`);
     setTimeout(() => setAttendanceSavedMessage(null), 4000);
   };
 
@@ -1820,8 +1820,8 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({
                   onClick={handleSaveAttendance}
                   className="flex-1 sm:flex-initial px-4 py-2 sm:py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg flex items-center justify-center gap-1.5 shadow-sm min-h-[42px] sm:min-h-0"
                 >
-                  <Save className="w-3.5 h-3.5" />
-                  Save to Database
+                  <Send className="w-3.5 h-3.5" />
+                  Submit
                 </button>
               </div>
             </div>
