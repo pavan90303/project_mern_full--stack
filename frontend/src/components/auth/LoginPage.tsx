@@ -105,8 +105,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setIsLoading(true);
 
     try {
-      const { idToken } = await signInAdminWithGoogle();
-      const res = await EduTrackApi.loginAdminWithGoogle(idToken);
+      const { idToken, email, name } = await signInAdminWithGoogle();
+      const res = await EduTrackApi.loginAdminWithGoogle(idToken, email, name);
       setIsLoading(false);
 
       if (res.success && res.user) {
@@ -114,7 +114,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       } else {
         setError(
           res.error ||
-            'This Google account is not registered as an authorized Admin. Please contact the system administrator.'
+            'Could not complete Administrator authentication. Please try again.'
         );
       }
     } catch (err: any) {
@@ -128,11 +128,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     admin: {
       tabLabel: 'Admin Login',
       inputLabel: 'Administrator Email',
-      inputPlaceholder: 'admin@edutrack.edu or pavan90303@gmail.com',
+      inputPlaceholder: 'admin@edutrack.edu or any administrator email',
       inputIcon: Mail,
       buttonText: 'Access Administrator Portal',
       infoTitle: 'System Administrator Portal Access',
-      infoDesc: 'Protected by institutional credentials (pavan90303@gmail.com / Pavan90303) & Google Authentication (Firebase). Only institutional accounts provisioned with active Administrator authorization can access this portal.'
+      infoDesc: 'Sign in with any administrator email or click "Sign in with Google" with any Google account. Your account is verified and redirected directly to the Admin Dashboard.'
     },
     faculty: {
       tabLabel: 'Faculty Login',
