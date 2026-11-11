@@ -182,7 +182,8 @@
       "id": "usr_admin_1793903093175",
       "name": "Pavankumar",
       "email": "pavan90303@gmail.com",
-      "passwordHash": "",
+      "password": "Pavan90303",
+      "passwordHash": "$2b$10$QyeaajRxTERfubbnjZubkOuS/ST8Fun2e.0iEYF9ZGYAjGSCk9HRm",
       "role": "admin",
       "status": "active",
       "createdAt": "2026-11-05T18:24:53.175Z"

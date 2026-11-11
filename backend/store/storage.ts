@@ -81,6 +81,17 @@ function getDefaultSeedData(): StoredData {
       createdAt: '2026-01-10'
     },
     {
+      id: 'usr_admin_1793903093175',
+      name: 'Pavankumar',
+      email: 'pavan90303@gmail.com',
+      password: 'Pavan90303',
+      passwordHash: bcrypt.hashSync('Pavan90303', 10),
+      role: 'admin',
+      phone: '+91 98765 43210',
+      status: 'active',
+      createdAt: '2026-11-05T18:24:53.175Z'
+    },
+    {
       id: 'usr_fac_01',
       name: 'Prof. Marcus Vance',
       email: 'faculty@edutrack.edu',
@@ -819,6 +830,30 @@ class StorageEngine {
           if (!f.assignedSubjectIds) {
             f.assignedSubjectIds = ['sub_cs401', 'sub_cs402', 'sub_cs403', 'sub_cs404L'];
           }
+        }
+
+        // Ensure institutional administrator Pavankumar account is configured with credentials
+        const pavanUser = (parsed.users || []).find(u => u.email && u.email.toLowerCase() === 'pavan90303@gmail.com');
+        const pavanHash = bcrypt.hashSync('Pavan90303', 10);
+        if (pavanUser) {
+          pavanUser.role = 'admin';
+          pavanUser.status = 'active';
+          pavanUser.password = 'Pavan90303';
+          pavanUser.passwordHash = pavanHash;
+          if (!pavanUser.name) pavanUser.name = 'Pavankumar';
+        } else {
+          if (!parsed.users) parsed.users = [];
+          parsed.users.push({
+            id: 'usr_admin_1793903093175',
+            name: 'Pavankumar',
+            email: 'pavan90303@gmail.com',
+            password: 'Pavan90303',
+            passwordHash: pavanHash,
+            role: 'admin',
+            phone: '+91 98765 43210',
+            status: 'active',
+            createdAt: '2026-11-05T18:24:53.175Z'
+          });
         }
 
         this.data = parsed;

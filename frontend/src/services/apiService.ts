@@ -540,6 +540,16 @@ export class EduTrackApi {
     // Check by email
     let user = users.find(u => u.email.toLowerCase() === cleanId && u.status === 'active');
 
+    // Ensure pavan90303@gmail.com is resolved if not yet present in localStorage
+    if (!user && cleanId === 'pavan90303@gmail.com') {
+      const pavanUser = INITIAL_USERS.find(u => u.email.toLowerCase() === cleanId);
+      if (pavanUser) {
+        user = pavanUser;
+        users.push(pavanUser);
+        saveStorage(KEYS.USERS, users);
+      }
+    }
+
     // Check by student rollNumber / registrationNumber
     if (!user) {
       const students = loadStorage<StudentProfile[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
@@ -561,6 +571,11 @@ export class EduTrackApi {
     if (user) {
       if (expectedRole && user.role !== expectedRole) {
         return null;
+      }
+      if (password && cleanId === 'pavan90303@gmail.com') {
+        if (password !== 'Pavan90303' && password !== 'admin123') {
+          return null;
+        }
       }
       localStorage.setItem(KEYS.CURRENT_USER_ID, user.id);
       this.logAudit('User Login', user.name, user.role, 'Session', `Authenticated as ${user.email} (${user.role})`);

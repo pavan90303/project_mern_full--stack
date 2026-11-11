@@ -41,7 +41,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         const r = (params.get('role') || params.get('login') || initialRole)?.toLowerCase();
         if (r === 'faculty') return 'faculty@edutrack.edu';
         if (r === 'student') return '990000003';
-        return 'admin@edutrack.edu';
+        return 'pavan90303@gmail.com';
       }
     } catch {}
     return '';
@@ -53,7 +53,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         const r = (params.get('role') || params.get('login') || initialRole)?.toLowerCase();
         if (r === 'faculty') return 'faculty123';
         if (r === 'student') return 'student123';
-        return 'admin123';
+        return 'Pavan90303';
       }
     } catch {}
     return '';
@@ -128,11 +128,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     admin: {
       tabLabel: 'Admin Login',
       inputLabel: 'Administrator Email',
-      inputPlaceholder: 'admin@edutrack.edu',
+      inputPlaceholder: 'admin@edutrack.edu or pavan90303@gmail.com',
       inputIcon: Mail,
       buttonText: 'Access Administrator Portal',
       infoTitle: 'System Administrator Portal Access',
-      infoDesc: 'Protected by institutional credentials & Google Authentication (Firebase). Only institutional accounts provisioned with active Administrator authorization can access this portal.'
+      infoDesc: 'Protected by institutional credentials (pavan90303@gmail.com / Pavan90303) & Google Authentication (Firebase). Only institutional accounts provisioned with active Administrator authorization can access this portal.'
     },
     faculty: {
       tabLabel: 'Faculty Login',

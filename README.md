@@ -37,7 +37,7 @@ You can test each institutional portal directly with pre-configured demo credent
 
 | Role Portal | Direct Demo Login Link | Demo Username / Identifier | Password | Primary Capabilities |
 |:---|:---:|:---:|:---:|:---|
-| **🛡️ System Administrator** | [**Launch Admin Portal**](https://projectmernfull-stack-roan.vercel.app/?role=admin&demo=true) | `admin@edutrack.edu` | `admin123` | Department curricula, student & faculty management, master timetable conflict validation, audit ledger |
+| **🛡️ System Administrator** | [**Launch Admin Portal**](https://projectmernfull-stack-roan.vercel.app/?role=admin&demo=true) | `pavan90303@gmail.com`<br>*(or `admin@edutrack.edu` / Google Sign-In)* | `Pavan90303`<br>*(or `admin123`)* | Department curricula, student & faculty management, master timetable conflict validation, audit ledger |
 | **👨‍🏫 Teaching Faculty** | [**Launch Faculty Portal**](https://projectmernfull-stack-roan.vercel.app/?role=faculty&demo=true) | `faculty@edutrack.edu`<br>*(or `EMP-101`)* | `faculty123` | Section-wise attendance (today's date locked), syllabus material upload, student submission grading, MCQ test publishing |
 | **🎓 Enrolled Student** | [**Launch Student Portal**](https://projectmernfull-stack-roan.vercel.app/?role=student&demo=true) | `990000003`<br>*(or `student@edutrack.edu`)* | `student123` | Dynamic session attendance, class timetables, material downloads, online MCQ exams & released scorecards |
 

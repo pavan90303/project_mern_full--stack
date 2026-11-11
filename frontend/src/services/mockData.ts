@@ -32,8 +32,18 @@ export const DEFAULT_ADMIN_USER: User = {
   createdAt: '2026-10-09'
 };
 
+export const PAVAN_ADMIN_USER: User = {
+  id: 'usr_admin_1793903093175',
+  name: 'Pavankumar',
+  email: 'pavan90303@gmail.com',
+  role: 'admin',
+  phone: '+91 98765 43210',
+  status: 'active',
+  createdAt: '2026-11-05'
+};
+
 // All initial academic tables are 100% EMPTY on setup as required
-export const INITIAL_USERS: User[] = [DEFAULT_ADMIN_USER];
+export const INITIAL_USERS: User[] = [DEFAULT_ADMIN_USER, PAVAN_ADMIN_USER];
 export const INITIAL_STUDENTS: StudentProfile[] = [];
 export const INITIAL_FACULTY: FacultyProfile[] = [];
 export const INITIAL_DEPARTMENTS: Department[] = [];
