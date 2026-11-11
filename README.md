@@ -23,7 +23,7 @@
 | # | Required Deliverable | Direct Repository Link / Live URL | Verification Status |
 |:---:|:---|:---|:---:|
 | **1** | **Complete Project Source Code** | [`frontend/`](./frontend/) · [`backend/`](./backend/) | ✅ Complete & Fully Operational |
-| **2** | **Project PPT & Documentation** | Presentation: [`docs/Project_PPT.pdf`](./docs/Project_PPT.pdf)<br>Academic SRS: [`docs/Project_Documentation.pdf`](./docs/Project_Documentation.pdf) | ✅ Verified (PDF format in `docs/`) |
+| **2** | **Project PPT & Report Documentation** | Presentation: [`docs/Project_PPT.pdf`](./docs/Project_PPT.pdf)<br>Project Report: [`docs/Project_Documentation.pdf`](./docs/Project_Documentation.pdf) | ✅ Verified (Official PDF Documents) |
 | **3** | **Live Deployment Link** | [**https://projectmernfull-stack-roan.vercel.app/**](https://projectmernfull-stack-roan.vercel.app/) | ✅ 100% Live on Vercel |
 | **4** | **README.md with Setup Instructions** | [`README.md` Setup & Quick Start Guide](#-quick-start-guide) | ✅ Detailed Instructions & Architecture |
 | **5** | **Database Design & API Documentation** | DB Design: [`docs/Database_Design.pdf`](./docs/Database_Design.pdf)<br>API Docs: [`docs/API_Documentation.pdf`](./docs/API_Documentation.pdf) | ✅ Verified (16 Collections & Full API) |
@@ -84,8 +84,8 @@ Edu-Track-Student-Academic-Management-System/
 │   │   ├── 03_admin_dashboard.jpg       # Page 3: Administrator central operations
 │   │   ├── 04_faculty_dashboard.jpg     # Page 4: Teaching faculty instructional workspace
 │   │   └── 05_student_dashboard.jpg     # Page 5: Student academic tracking workspace
-│   ├── Project_PPT.pdf               # Executive presentation slide deck (12 Slides)
-│   ├── Project_Documentation.pdf     # Academic SRS & System Architecture specification
+│   ├── Project_PPT.pdf               # Official presentation slide deck by System Saviours
+│   ├── Project_Documentation.pdf     # Official 20-page Academic Project Report by System Saviours
 │   ├── Database_Design.pdf           # Entity-Relationship models & 16-collection schemas
 │   └── API_Documentation.pdf         # REST endpoints & Socket.IO event reference
 ```
@@ -122,8 +122,8 @@ Complete, publication-grade academic and technical documents are provided in [`d
 
 | Document | Description | Format | Direct Link |
 |:---|:---|:---:|:---|
-| **Project Presentation Deck** | 12-slide executive presentation covering problem landscape, MERN architecture, role governance matrix, conflict detection, anti-tamper attendance, and proctoring. | Landscape PDF | [docs/Project_PPT.pdf](./docs/Project_PPT.pdf) |
-| **Project Documentation (SRS)** | Formal academic Software Requirements Specification (SRS), system architecture, functional modules, core algorithms, and testing matrices. | A4 Report PDF | [docs/Project_Documentation.pdf](./docs/Project_Documentation.pdf) |
+| **Project Presentation Deck (PPT)** | Official presentation deck covering platform motivation, MERN architecture, implementation roadmap, role governance matrix, database collections, and technology stack by System Saviours. | Landscape PDF | [docs/Project_PPT.pdf](./docs/Project_PPT.pdf) |
+| **Project Report Documentation** | Comprehensive 20-page Academic Project Report covering SRS, system architecture, 17 detailed sections, workflows, Mongoose schemas, and test matrices by System Saviours (K. Srikanth, V. Pavan Kumar, D.V. Nithin Reddy, M. Bala Maruthi, K. Hemasai Latha, J. Charitha). | A4 Report PDF | [docs/Project_Documentation.pdf](./docs/Project_Documentation.pdf) |
 | **Database Design Specification** | Comprehensive data modeling guide, entity-relationship cardinality, 16 collection schemas with types, indexing strategies, and dual-store sync protocols. | A4 Reference PDF | [docs/Database_Design.pdf](./docs/Database_Design.pdf) |
 | **API Documentation** | Full REST endpoint reference, HTTP methods, headers, payloads, error schemas, status codes, and Socket.IO real-time event definitions. | A4 Reference PDF | [docs/API_Documentation.pdf](./docs/API_Documentation.pdf) |
 
