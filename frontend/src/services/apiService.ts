@@ -261,150 +261,34 @@ export class EduTrackApi {
       ]);
 
       if (serverUsers && Array.isArray(serverUsers)) {
-        const localUsers = loadStorage<User[]>(KEYS.USERS, INITIAL_USERS);
-        const mergedUsers = [...serverUsers];
-        localUsers.forEach(lu => {
-          if (!mergedUsers.some(mu => mu.id === lu.id || (mu.email && lu.email && mu.email.toLowerCase() === lu.email.toLowerCase()))) {
-            mergedUsers.push(lu);
-          }
-        });
-        saveStorage(KEYS.USERS, mergedUsers);
+        saveStorage(KEYS.USERS, serverUsers);
       }
 
-      if (depts) saveStorage(KEYS.DEPARTMENTS, depts);
-      if (sections) saveStorage(KEYS.SECTIONS, sections);
-      if (subs) saveStorage(KEYS.SUBJECTS, subs);
-      if (students) {
-        const localStudents = loadStorage<StudentProfile[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
-        const mergedStudents = [...students];
-        localStudents.forEach(ls => {
-          if (!mergedStudents.some(ms => ms.id === ls.id || ms.rollNumber === ls.rollNumber)) {
-            mergedStudents.push(ls);
-          }
-        });
-        saveStorage(KEYS.STUDENTS, mergedStudents);
+      if (depts && Array.isArray(depts)) saveStorage(KEYS.DEPARTMENTS, depts);
+      if (sections && Array.isArray(sections)) saveStorage(KEYS.SECTIONS, sections);
+      if (subs && Array.isArray(subs)) saveStorage(KEYS.SUBJECTS, subs);
 
-        // Synchronize student users into KEYS.USERS so they persist permanently
-        const currentUsers = loadStorage<User[]>(KEYS.USERS, INITIAL_USERS);
-        let uChanged = false;
-        mergedStudents.forEach(st => {
-          if (st.name || st.email) {
-            const existingU = currentUsers.find(u => u.id === st.userId || (st.email && u.email && u.email.toLowerCase() === st.email.toLowerCase()));
-            if (!existingU && st.userId) {
-              currentUsers.push({
-                id: st.userId,
-                name: st.name || `Student ${st.rollNumber}`,
-                email: st.email || `${st.rollNumber.toLowerCase()}@university.edu`,
-                role: 'student',
-                status: 'active',
-                createdAt: new Date().toISOString().split('T')[0]
-              });
-              uChanged = true;
-            } else if (existingU) {
-              if (st.name && (!existingU.name || existingU.name === 'Student')) {
-                existingU.name = st.name;
-                uChanged = true;
-              }
-              if (st.email && !existingU.email) {
-                existingU.email = st.email;
-                uChanged = true;
-              }
-            }
-          }
-        });
-        if (uChanged) saveStorage(KEYS.USERS, currentUsers);
+      if (students && Array.isArray(students)) {
+        saveStorage(KEYS.STUDENTS, students);
       }
-      if (facultyList) {
-        const localFaculty = loadStorage<FacultyProfile[]>(KEYS.FACULTY, INITIAL_FACULTY);
-        const mergedFaculty = [...facultyList];
-        localFaculty.forEach(lf => {
-          if (!mergedFaculty.some(mf => mf.id === lf.id || mf.employeeId === lf.employeeId)) {
-            mergedFaculty.push(lf);
-          }
-        });
-        saveStorage(KEYS.FACULTY, mergedFaculty);
 
-        // Synchronize faculty users into KEYS.USERS so they persist permanently
-        const currentUsers = loadStorage<User[]>(KEYS.USERS, INITIAL_USERS);
-        let uChanged = false;
-        mergedFaculty.forEach(fc => {
-          if (fc.name || fc.email) {
-            const existingU = currentUsers.find(u => u.id === fc.userId || (fc.email && u.email && u.email.toLowerCase() === fc.email.toLowerCase()));
-            if (!existingU && fc.userId) {
-              currentUsers.push({
-                id: fc.userId,
-                name: fc.name || `Faculty ${fc.employeeId}`,
-                email: fc.email || `${fc.employeeId.toLowerCase()}@university.edu`,
-                role: 'faculty',
-                status: 'active',
-                createdAt: new Date().toISOString().split('T')[0]
-              });
-              uChanged = true;
-            } else if (existingU) {
-              if (fc.name && (!existingU.name || existingU.name === 'Faculty Member')) {
-                existingU.name = fc.name;
-                uChanged = true;
-              }
-              if (fc.email && !existingU.email) {
-                existingU.email = fc.email;
-                uChanged = true;
-              }
-            }
-          }
-        });
-        if (uChanged) saveStorage(KEYS.USERS, currentUsers);
+      if (facultyList && Array.isArray(facultyList)) {
+        saveStorage(KEYS.FACULTY, facultyList);
       }
-      if (announcements) saveStorage(KEYS.ANNOUNCEMENTS, announcements);
-      if (timetable) saveStorage(KEYS.CLASS_TIMETABLE, timetable);
-      if (exams) saveStorage(KEYS.EXAMS, exams);
+
+      if (announcements && Array.isArray(announcements)) saveStorage(KEYS.ANNOUNCEMENTS, announcements);
+      if (timetable && Array.isArray(timetable)) saveStorage(KEYS.CLASS_TIMETABLE, timetable);
+      if (exams && Array.isArray(exams)) saveStorage(KEYS.EXAMS, exams);
       if (asgs && Array.isArray(asgs)) saveStorage(KEYS.ASSIGNMENTS, asgs);
       if (materials && Array.isArray(materials)) saveStorage(KEYS.MATERIALS, materials);
       if (assessments && Array.isArray(assessments)) saveStorage(KEYS.INTERNAL_ASSESSMENTS, assessments);
       if (sessions && Array.isArray(sessions)) saveStorage(KEYS.ATTENDANCE_SESSIONS, sessions);
       if (teachingAssignments && Array.isArray(teachingAssignments)) saveStorage(KEYS.TEACHING_ASSIGNMENTS, teachingAssignments);
-      if (allEnrollments && Array.isArray(allEnrollments)) {
-        const localEnrs = loadStorage<CourseEnrollment[]>(KEYS.ENROLLMENTS, INITIAL_ENROLLMENTS);
-        const mergedEnrs = [...allEnrollments];
-        localEnrs.forEach(le => {
-          if (!mergedEnrs.some(me => me.id === le.id || (me.studentId === le.studentId && me.subjectCode === le.subjectCode))) {
-            mergedEnrs.push(le);
-          }
-        });
-        saveStorage(KEYS.ENROLLMENTS, mergedEnrs);
-      }
-      if (allResults && Array.isArray(allResults)) {
-        const localRes = loadStorage<AssessmentResult[]>(KEYS.RESULTS, INITIAL_SEMESTER_RESULTS);
-        const mergedRes = [...allResults];
-        localRes.forEach(lr => {
-          if (!mergedRes.some(mr => mr.id === lr.id || (mr.studentId === lr.studentId && mr.semester === lr.semester))) {
-            mergedRes.push(lr);
-          }
-        });
-        saveStorage(KEYS.RESULTS, mergedRes);
-      }
-      if (onlineExamsList && Array.isArray(onlineExamsList)) {
-        saveStorage(KEYS.ONLINE_EXAMS, onlineExamsList);
-      }
-      if (serverSubmissions && Array.isArray(serverSubmissions)) {
-        const localSubs = loadStorage<Submission[]>(KEYS.SUBMISSIONS, INITIAL_SUBMISSIONS);
-        const mergedSubs = [...serverSubmissions];
-        localSubs.forEach(ls => {
-          if (!mergedSubs.some(ms => ms.id === ls.id || (ms.assignmentId === ls.assignmentId && ms.studentId === ls.studentId))) {
-            mergedSubs.push(ls);
-          }
-        });
-        saveStorage(KEYS.SUBMISSIONS, mergedSubs);
-      }
-      if (serverAttempts && Array.isArray(serverAttempts)) {
-        const localAttempts = loadStorage<ExamAttempt[]>(KEYS.EXAM_ATTEMPTS, INITIAL_EXAM_ATTEMPTS);
-        const mergedAttempts = [...serverAttempts];
-        localAttempts.forEach(la => {
-          if (!mergedAttempts.some(ma => ma.id === la.id)) {
-            mergedAttempts.push(la);
-          }
-        });
-        saveStorage(KEYS.EXAM_ATTEMPTS, mergedAttempts);
-      }
+      if (allEnrollments && Array.isArray(allEnrollments)) saveStorage(KEYS.ENROLLMENTS, allEnrollments);
+      if (allResults && Array.isArray(allResults)) saveStorage(KEYS.RESULTS, allResults);
+      if (onlineExamsList && Array.isArray(onlineExamsList)) saveStorage(KEYS.ONLINE_EXAMS, onlineExamsList);
+      if (serverSubmissions && Array.isArray(serverSubmissions)) saveStorage(KEYS.SUBMISSIONS, serverSubmissions);
+      if (serverAttempts && Array.isArray(serverAttempts)) saveStorage(KEYS.EXAM_ATTEMPTS, serverAttempts);
     } catch {
       // Offline fallback
     }
@@ -448,9 +332,20 @@ export class EduTrackApi {
       }
 
       if (data && data.token && data.user) {
+        const lastEmail = localStorage.getItem('edutrack_last_user_email');
+        if (lastEmail !== data.user.email.toLowerCase()) {
+          Object.values(KEYS).forEach(k => {
+            if (k !== KEYS.CURRENT_USER_ID) localStorage.removeItem(k);
+          });
+          localStorage.setItem('edutrack_last_user_email', data.user.email.toLowerCase());
+        }
         localStorage.setItem(TOKEN_KEY, data.token);
         localStorage.setItem(KEYS.CURRENT_USER_ID, data.user.id);
         
+        // Refresh client store from server for this user
+        this.isInitialized = false;
+        this.init().catch(() => {});
+
         // Cache user in storage if not present
         const users = this.getUsers();
         const existingIdx = users.findIndex(u => u.id === data.user.id);
@@ -462,13 +357,13 @@ export class EduTrackApi {
         saveStorage(KEYS.USERS, users);
 
         if (data.user.role === 'student' && data.profile) {
-          const students = loadStorage<StudentProfile[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+          const students = loadStorage<StudentProfile[]>(KEYS.STUDENTS, []);
           const idx = students.findIndex(s => s.id === data.profile.id);
           if (idx !== -1) students[idx] = data.profile;
           else students.push(data.profile);
           saveStorage(KEYS.STUDENTS, students);
         } else if (data.user.role === 'faculty' && data.profile) {
-          const facList = loadStorage<FacultyProfile[]>(KEYS.FACULTY, INITIAL_FACULTY);
+          const facList = loadStorage<FacultyProfile[]>(KEYS.FACULTY, []);
           const idx = facList.findIndex(f => f.id === data.profile.id);
           if (idx !== -1) facList[idx] = data.profile;
           else facList.push(data.profile);
@@ -517,8 +412,18 @@ export class EduTrackApi {
         }
 
         if (data && data.user) {
+          const lastEmail = localStorage.getItem('edutrack_last_user_email');
+          if (lastEmail !== data.user.email.toLowerCase()) {
+            Object.values(KEYS).forEach(k => {
+              if (k !== KEYS.CURRENT_USER_ID) localStorage.removeItem(k);
+            });
+            localStorage.setItem('edutrack_last_user_email', data.user.email.toLowerCase());
+          }
           localStorage.setItem(TOKEN_KEY, data.token || 'user_jwt_token');
           localStorage.setItem(KEYS.CURRENT_USER_ID, data.user.id);
+
+          this.isInitialized = false;
+          this.init().catch(() => {});
 
           const users = this.getUsers();
           const existingIdx = users.findIndex(u => u.id === data.user.id || u.email.toLowerCase() === data.user.email.toLowerCase());
@@ -783,8 +688,10 @@ export class EduTrackApi {
       this.logAudit('User Logout', active.name, active.role, 'Session', 'User logged out');
     }
     apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    localStorage.removeItem(KEYS.CURRENT_USER_ID);
+    Object.values(KEYS).forEach(k => localStorage.removeItem(k));
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem('edutrack_last_user_email');
+    this.isInitialized = false;
     try {
       firebaseSignOut().catch(() => {});
     } catch {}

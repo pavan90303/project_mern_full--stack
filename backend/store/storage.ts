@@ -22,7 +22,8 @@ import {
   AnnouncementModel,
   AuditLogModel,
   OnlineExamModel,
-  ExamAttemptModel
+  ExamAttemptModel,
+  AdminWorkspaceModel
 } from '../models/index';
 import { isDbConnected } from '../db/connection';
 
@@ -736,6 +737,96 @@ function getDefaultSeedData(): StoredData {
   };
 }
 
+function isDefaultSeedAdmin(adminId: string): boolean {
+  if (!adminId || adminId === '__global__') return true;
+  const clean = adminId.toLowerCase().trim();
+  return clean === 'pavan90303@gmail.com' || clean === 'admin@edutrack.edu' || clean.includes('pavan90303');
+}
+
+function getFreshTenantData(adminId: string): StoredData {
+  const cleanEmail = adminId.toLowerCase().trim();
+  const rawPrefix = cleanEmail.includes('@') ? cleanEmail.split('@')[0] : 'admin';
+  const displayName = rawPrefix.charAt(0).toUpperCase() + rawPrefix.slice(1);
+
+  const adminUser = {
+    id: `usr_admin_${Date.now()}`,
+    name: displayName,
+    email: cleanEmail,
+    passwordHash: '',
+    role: 'admin',
+    status: 'active',
+    createdAt: new Date().toISOString()
+  };
+
+  const departments = [
+    {
+      id: 'dept_cse',
+      code: 'CSE',
+      name: 'Computer Science & Engineering',
+      hodName: '',
+      hodEmail: '',
+      description: 'Department of Computing, Artificial Intelligence & Distributed Systems',
+      totalStudents: 0,
+      totalFaculty: 0,
+      totalSemesters: 8
+    },
+    {
+      id: 'dept_ece',
+      code: 'ECE',
+      name: 'Electronics & Communication',
+      hodName: '',
+      hodEmail: '',
+      description: 'VLSI, Embedded Architecture & Signal Processing Systems',
+      totalStudents: 0,
+      totalFaculty: 0,
+      totalSemesters: 8,
+      numberOfSections: 2
+    }
+  ];
+
+  const sections = [
+    { id: 'sec_cse_a', name: 'CSE-A', sectionCode: 'A', departmentId: 'dept_cse', departmentCode: 'CSE', capacity: 60, enrollmentCount: 0, status: 'active', createdAt: new Date().toISOString().split('T')[0] },
+    { id: 'sec_cse_b', name: 'CSE-B', sectionCode: 'B', departmentId: 'dept_cse', departmentCode: 'CSE', capacity: 60, enrollmentCount: 0, status: 'active', createdAt: new Date().toISOString().split('T')[0] },
+    { id: 'sec_cse_c', name: 'CSE-C', sectionCode: 'C', departmentId: 'dept_cse', departmentCode: 'CSE', capacity: 60, enrollmentCount: 0, status: 'active', createdAt: new Date().toISOString().split('T')[0] },
+    { id: 'sec_ece_a', name: 'ECE-A', sectionCode: 'A', departmentId: 'dept_ece', departmentCode: 'ECE', capacity: 60, enrollmentCount: 0, status: 'active', createdAt: new Date().toISOString().split('T')[0] },
+    { id: 'sec_ece_b', name: 'ECE-B', sectionCode: 'B', departmentId: 'dept_ece', departmentCode: 'ECE', capacity: 60, enrollmentCount: 0, status: 'active', createdAt: new Date().toISOString().split('T')[0] }
+  ];
+
+  return {
+    users: [adminUser],
+    departments,
+    sections,
+    subjects: [],
+    teachingAssignments: [],
+    students: [],
+    faculty: [],
+    enrollments: [],
+    classTimetable: [],
+    examSchedules: [],
+    attendanceSessions: [],
+    studyMaterials: [],
+    assignments: [],
+    submissions: [],
+    internalAssessments: [],
+    assessmentMarks: [],
+    results: [],
+    announcements: [],
+    auditLogs: [
+      {
+        id: `audit_${Date.now()}`,
+        action: 'Workspace Initialized',
+        performedBy: displayName,
+        role: 'admin',
+        targetEntity: 'Admin Workspace',
+        details: `Fresh independent academic database initialized for ${cleanEmail}.`,
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19)
+      }
+    ],
+    onlineExams: [],
+    examAttempts: []
+  };
+}
+
 class StorageEngine {
   private data: StoredData;
   private dbFile: string;
@@ -890,7 +981,12 @@ class StorageEngine {
     } catch (err) {
       console.error('[StorageEngine] Error reading DB file, reinitializing default:', err);
     }
-    const defaults = getDefaultSeedData();
+
+    // If this is the default/pavan admin, seed from full demo data.
+    // If this is ANY other user logging in with their email, start newly and fresh.
+    const defaults = isDefaultSeedAdmin(this.adminId)
+      ? getDefaultSeedData()
+      : getFreshTenantData(this.adminId);
     this.saveDirect(defaults);
     return defaults;
   }
@@ -918,6 +1014,21 @@ class StorageEngine {
   public async syncToMongoDB(): Promise<boolean> {
     if (!isDbConnected()) return false;
     try {
+      // 0. Save full isolated workspace record for this admin
+      const cleanEmail = this.adminId.toLowerCase().trim();
+      await AdminWorkspaceModel.findOneAndUpdate(
+        { adminId: this.adminId },
+        {
+          adminId: this.adminId,
+          adminEmail: cleanEmail,
+          data: this.data,
+          updatedAt: new Date()
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).catch((err: any) => {
+        console.warn('[StorageEngine] MongoDB workspace record warning:', err?.message || err);
+      });
+
       // 1. Users
       if (this.data.users?.length) {
         for (const u of this.data.users) {

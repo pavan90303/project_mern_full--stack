@@ -725,7 +725,23 @@ export const ExamAttemptSchema = new Schema<IExamAttempt>({
 
 ExamAttemptSchema.index({ examId: 1, studentId: 1, attemptNumber: 1 });
 
+// ================= ADMIN WORKSPACE MODEL (PER-ADMIN ISOLATION) =================
+export interface IAdminWorkspace extends Document {
+  adminId: string;
+  adminEmail: string;
+  data: any;
+  updatedAt: Date;
+}
+
+export const AdminWorkspaceSchema = new Schema<IAdminWorkspace>({
+  adminId: { type: String, required: true, unique: true, index: true },
+  adminEmail: { type: String, required: true, lowercase: true, index: true },
+  data: { type: Schema.Types.Mixed, required: true },
+  updatedAt: { type: Date, default: Date.now }
+});
+
 // Export Mongoose Models
+export const AdminWorkspaceModel: Model<IAdminWorkspace> = mongoose.models.AdminWorkspace || mongoose.model<IAdminWorkspace>('AdminWorkspace', AdminWorkspaceSchema);
 export const UserModel: Model<IUser> = mongoose.models.User || mongoose.model<IUser>('User', UserSchema);
 export const DepartmentModel: Model<IDepartment> = mongoose.models.Department || mongoose.model<IDepartment>('Department', DepartmentSchema);
 export const SectionModel: Model<ISection> = mongoose.models.Section || mongoose.model<ISection>('Section', SectionSchema);
