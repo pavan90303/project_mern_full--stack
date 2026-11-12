@@ -35,13 +35,13 @@
 
 You can test each institutional portal directly with pre-configured demo credentials or direct one-click authentication:
 
-| Role Portal | Direct Demo Login Link | Demo Username / Identifier | Password | Primary Capabilities |
+| Role Portal | Direct Demo Login Link | Demo Username / Identifier | Password | Authentication Options |
 |:---|:---:|:---:|:---:|:---|
-| **🛡️ System Administrator** | [**Launch Admin Portal**](https://projectmernfull-stack-roan.vercel.app/?role=admin&demo=true) | Any email (e.g. `pavan90303@gmail.com`, `admin@edutrack.edu`, or Any Google Account) | `Pavan90303`<br>*(or `admin123`)* | Department curricula, student & faculty management, master timetable conflict validation, audit ledger |
-| **👨‍🏫 Teaching Faculty** | [**Launch Faculty Portal**](https://projectmernfull-stack-roan.vercel.app/?role=faculty&demo=true) | `faculty@edutrack.edu`<br>*(or `EMP-101`)* | `faculty123` | Section-wise attendance (today's date locked), syllabus material upload, student submission grading, MCQ test publishing |
-| **🎓 Enrolled Student** | [**Launch Student Portal**](https://projectmernfull-stack-roan.vercel.app/?role=student&demo=true) | `990000003`<br>*(or `student@edutrack.edu`)* | `student123` | Dynamic session attendance, class timetables, material downloads, online MCQ exams & released scorecards |
+| **🛡️ System Administrator** | [**Launch Admin Portal**](https://projectmernfull-stack-roan.vercel.app/?role=admin&demo=true) | Any email (e.g. `pavan90303@gmail.com`, `admin@edutrack.edu`) | `Pavan90303`<br>*(or `admin123`)* | Direct Google Sign-in or Administrator Email/Password |
+| **👨‍🏫 Teaching Faculty** | [**Launch Faculty Portal**](https://projectmernfull-stack-roan.vercel.app/?role=faculty&demo=true) | `faculty@edutrack.edu`<br>*(or `EMP-101` / Google Mail)* | `faculty123`<br>*(or custom password)* | **Google Authentication** (1st time: verifies email & creates password; 2nd time: Google or Email + Password) |
+| **🎓 Enrolled Student** | [**Launch Student Portal**](https://projectmernfull-stack-roan.vercel.app/?role=student&demo=true) | `990000003`<br>*(or `student@edutrack.edu` / Google Mail)* | `student123`<br>*(or custom password)* | **Google Authentication** (1st time: verifies email & creates password; 2nd time: Google or Email + Password) |
 
-> **💡 Quick Tip:** Clicking any **Direct Demo Login Link** above automatically opens the application directly on that role's login tab with credentials ready. You can also visit the standard [Landing Page](https://projectmernfull-stack-roan.vercel.app/) and sign in manually.
+> **💡 Quick Tip:** Clicking any **Direct Demo Login Link** above automatically opens the application directly on that role's login tab with credentials ready. You can also visit the standard [Landing Page](https://projectmernfull-stack-roan.vercel.app/) and sign in with Google or institutional credentials.
 
 ---
 

@@ -31,10 +31,10 @@ googleProvider.setCustomParameters({
 });
 
 /**
- * Trigger Firebase Google Sign-In popup for Administrator authentication
- * Returns the verified Firebase ID Token string
+ * Trigger Firebase Google Sign-In popup for Administrator, Faculty, or Student authentication
+ * Returns the verified Firebase ID Token string, email, and display name
  */
-export async function signInAdminWithGoogle(): Promise<{ idToken: string; email: string | null; name: string | null }> {
+export async function signInWithGoogle(): Promise<{ idToken: string; email: string | null; name: string | null }> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
@@ -62,6 +62,9 @@ export async function signInAdminWithGoogle(): Promise<{ idToken: string; email:
     throw new Error(error.message || 'Failed to authenticate with Google.');
   }
 }
+
+// Backward-compatible alias
+export const signInAdminWithGoogle = signInWithGoogle;
 
 /**
  * Sign out from Firebase Authentication

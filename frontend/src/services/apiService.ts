@@ -490,30 +490,48 @@ export class EduTrackApi {
     return { success: false, error: 'Invalid credentials or unprovisioned account. Contact your university administrator.' };
   }
 
-  static async loginAdminWithGoogle(idToken: string, fallbackEmail?: string | null, fallbackName?: string | null): Promise<{ success: boolean; user?: User; error?: string }> {
+  static async loginWithGoogle(
+    idToken: string,
+    role: UserRole = 'admin',
+    fallbackEmail?: string | null,
+    fallbackName?: string | null,
+    password?: string
+  ): Promise<{ success: boolean; user?: User; needsPasswordSetup?: boolean; email?: string; name?: string; role?: UserRole; error?: string }> {
     try {
-      const res = await fetch(buildApiUrl('/api/auth/admin/google'), {
+      const res = await fetch(buildApiUrl('/api/auth/google'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken })
+        body: JSON.stringify({ idToken, role, password })
       });
 
       const data = await res.json();
-      if (res.ok && data && data.user) {
-        localStorage.setItem(TOKEN_KEY, data.token || 'admin_jwt_token');
-        localStorage.setItem(KEYS.CURRENT_USER_ID, data.user.id);
-
-        const users = this.getUsers();
-        const existingIdx = users.findIndex(u => u.id === data.user.id || u.email.toLowerCase() === data.user.email.toLowerCase());
-        if (existingIdx !== -1) {
-          users[existingIdx] = data.user;
-        } else {
-          users.push(data.user);
+      if (res.ok) {
+        if (data.needsPasswordSetup) {
+          return {
+            success: true,
+            needsPasswordSetup: true,
+            email: data.email || fallbackEmail || '',
+            name: data.name || fallbackName || '',
+            role: data.role || role
+          };
         }
-        saveStorage(KEYS.USERS, users);
 
-        this.logAudit('Admin Google Login', data.user.name, 'admin', 'Session', `Authenticated as ${data.user.email} (admin) via Firebase Google Sign-In`);
-        return { success: true, user: data.user };
+        if (data && data.user) {
+          localStorage.setItem(TOKEN_KEY, data.token || 'user_jwt_token');
+          localStorage.setItem(KEYS.CURRENT_USER_ID, data.user.id);
+
+          const users = this.getUsers();
+          const existingIdx = users.findIndex(u => u.id === data.user.id || u.email.toLowerCase() === data.user.email.toLowerCase());
+          if (existingIdx !== -1) {
+            users[existingIdx] = data.user;
+          } else {
+            users.push(data.user);
+          }
+          saveStorage(KEYS.USERS, users);
+
+          this.logAudit('Google Login', data.user.name, data.user.role, 'Session', `Authenticated as ${data.user.email} (${data.user.role}) via Firebase Google Sign-In`);
+          return { success: true, user: data.user };
+        }
       }
     } catch (err: any) {
       console.warn('[EduTrack API] Google login backend request error, activating client fallback:', err);
@@ -522,39 +540,165 @@ export class EduTrackApi {
     // Client-side authentication fallback (Firebase SDK already verified the Google identity)
     if (fallbackEmail) {
       const users = this.getUsers();
-      let user = users.find(u => u.email.toLowerCase() === fallbackEmail.toLowerCase());
-      const displayName = fallbackName || (fallbackEmail.split('@')[0] ? fallbackEmail.split('@')[0].charAt(0).toUpperCase() + fallbackEmail.split('@')[0].slice(1) : 'Administrator');
+      const cleanEmail = fallbackEmail.toLowerCase().trim();
+      let user = users.find(u => u.email.toLowerCase() === cleanEmail);
+      const displayName = fallbackName || (cleanEmail.split('@')[0] ? cleanEmail.split('@')[0].charAt(0).toUpperCase() + cleanEmail.split('@')[0].slice(1) : 'Institutional User');
 
-      if (!user) {
-        user = {
-          id: `usr_admin_${Date.now()}`,
-          name: displayName,
-          email: fallbackEmail,
-          role: 'admin',
-          phone: '+91 98765 43210',
-          status: 'active',
-          createdAt: new Date().toISOString().split('T')[0]
-        };
-        users.push(user);
-      } else {
-        user.role = 'admin';
-        user.status = 'active';
-        if (fallbackName && (!user.name || user.name === 'Administrator')) {
-          user.name = fallbackName;
+      if (role === 'admin') {
+        if (!user) {
+          user = {
+            id: `usr_admin_${Date.now()}`,
+            name: displayName,
+            email: cleanEmail,
+            role: 'admin',
+            phone: '+91 98765 43210',
+            status: 'active',
+            createdAt: new Date().toISOString().split('T')[0]
+          };
+          users.push(user);
+        } else {
+          user.role = 'admin';
+          user.status = 'active';
         }
+        saveStorage(KEYS.USERS, users);
+        localStorage.setItem(TOKEN_KEY, 'admin_client_token');
+        localStorage.setItem(KEYS.CURRENT_USER_ID, user.id);
+        this.logAudit('Admin Google Login', user.name, 'admin', 'Session', `Authenticated as ${user.email} (admin) via Google Sign-In`);
+        return { success: true, user };
       }
 
-      saveStorage(KEYS.USERS, users);
-      localStorage.setItem(TOKEN_KEY, 'admin_client_token');
-      localStorage.setItem(KEYS.CURRENT_USER_ID, user.id);
-      this.logAudit('Admin Google Login', user.name, 'admin', 'Session', `Authenticated as ${user.email} (admin) via Google Sign-In`);
-      return { success: true, user };
+      // For Faculty or Student: Check if user already has a password set
+      const hasPassword = Boolean(user && (user.password || (user as any).passwordHash));
+      if (!hasPassword) {
+        return {
+          success: true,
+          needsPasswordSetup: true,
+          email: cleanEmail,
+          name: displayName,
+          role
+        };
+      }
+
+      // Returning user with existing password
+      if (user) {
+        user.role = role;
+        user.status = 'active';
+        saveStorage(KEYS.USERS, users);
+        localStorage.setItem(TOKEN_KEY, 'user_client_token');
+        localStorage.setItem(KEYS.CURRENT_USER_ID, user.id);
+        this.logAudit('Google Login', user.name, user.role, 'Session', `Authenticated as ${user.email} (${user.role}) via Google Sign-In`);
+        return { success: true, user };
+      }
     }
 
     return {
       success: false,
       error: 'Google authentication could not be completed. Please try again.'
     };
+  }
+
+  static async setupPasswordForGoogleUser(
+    email: string,
+    name: string,
+    password: string,
+    role: UserRole
+  ): Promise<{ success: boolean; user?: User; error?: string }> {
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanPassword = password.trim();
+    const displayName = name || (cleanEmail.split('@')[0] ? cleanEmail.split('@')[0].charAt(0).toUpperCase() + cleanEmail.split('@')[0].slice(1) : 'Institutional User');
+
+    // Call backend endpoint to persist in DB / MongoDB
+    try {
+      await fetch(buildApiUrl('/api/auth/google/setup-password'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, name: displayName, password: cleanPassword, role })
+      });
+    } catch (err) {
+      console.warn('[EduTrack API] Backend setup-password warning, syncing locally:', err);
+    }
+
+    // Persist user in local storage
+    const users = this.getUsers();
+    let user = users.find(u => u.email.toLowerCase() === cleanEmail);
+
+    if (!user) {
+      user = {
+        id: `usr_${role}_${Date.now()}`,
+        name: displayName,
+        email: cleanEmail,
+        password: cleanPassword,
+        role: role,
+        phone: '+91 98765 43210',
+        status: 'active',
+        createdAt: new Date().toISOString().split('T')[0]
+      };
+      users.push(user);
+    } else {
+      user.name = displayName;
+      user.role = role;
+      user.password = cleanPassword;
+      user.status = 'active';
+    }
+    saveStorage(KEYS.USERS, users);
+
+    // If faculty, ensure faculty profile exists
+    if (role === 'faculty') {
+      const facultyList = loadStorage<FacultyProfile[]>(KEYS.FACULTY, INITIAL_FACULTY);
+      let fac = facultyList.find(f => f.userId === user!.id);
+      if (!fac) {
+        fac = {
+          id: `fac_${user.id.replace('usr_', '')}`,
+          userId: user.id,
+          employeeId: `EMP-${Math.floor(100 + Math.random() * 900)}`,
+          departmentId: 'dept_cse',
+          departmentName: 'Computer Science & Engineering',
+          designation: 'Assistant Professor',
+          highestQualification: 'Ph.D in Computer Science',
+          specialization: 'Distributed Systems & Cloud Architecture',
+          assignedSections: ['CSE-A', 'CSE-B'],
+          assignedSubjectIds: ['sub_cs401', 'sub_cs402'],
+          officeRoom: 'Tech Block 3, Room 410',
+          joiningDate: '2024-06-01',
+          status: 'active'
+        };
+        facultyList.push(fac);
+        saveStorage(KEYS.FACULTY, facultyList);
+      }
+    } else if (role === 'student') {
+      const studentList = loadStorage<StudentProfile[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+      let std = studentList.find(s => s.userId === user!.id);
+      if (!std) {
+        const rollNumber = String(Date.now()).slice(-9);
+        std = {
+          id: `std_${user.id.replace('usr_', '')}`,
+          userId: user.id,
+          rollNumber,
+          registrationNumber: rollNumber,
+          departmentId: 'dept_cse',
+          departmentName: 'Computer Science & Engineering',
+          currentSemester: 6,
+          section: 'CSE-A',
+          admissionYear: 2023,
+          academicYear: '2026-2027',
+          batch: '2023-2027',
+          cgpa: 8.5,
+          currentSgpa: 8.5,
+          attendancePercentage: 85.0,
+          mentorFacultyId: 'usr_fac_01',
+          academicStatus: 'Good Standing'
+        };
+        studentList.push(std);
+        saveStorage(KEYS.STUDENTS, studentList);
+      }
+    }
+
+    this.logAudit('Password Setup', user.name, user.role, 'Security', `Created initial login password for verified Google account (${cleanEmail})`);
+    return { success: true, user };
+  }
+
+  static async loginAdminWithGoogle(idToken: string, fallbackEmail?: string | null, fallbackName?: string | null): Promise<{ success: boolean; user?: User; error?: string }> {
+    return this.loginWithGoogle(idToken, 'admin', fallbackEmail, fallbackName);
   }
 
   static login(identifier: string, password?: string, expectedRole?: UserRole): User | null {

@@ -364,6 +364,419 @@ router.post('/admin/google', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/auth/google
+// Unified Firebase Google Authentication for Admin, Faculty, and Student roles
+router.post('/google', async (req: Request, res: Response) => {
+  const { idToken, role = 'admin', password } = req.body;
+
+  if (!idToken || typeof idToken !== 'string') {
+    return res.status(400).json({ error: 'Firebase ID token is required for Google authentication.' });
+  }
+
+  try {
+    const verifiedUser = await verifyFirebaseIdToken(idToken);
+    const verifiedEmail = verifiedUser.email.toLowerCase().trim();
+    const displayName = verifiedUser.name || (verifiedEmail.split('@')[0] ? verifiedEmail.split('@')[0].charAt(0).toUpperCase() + verifiedEmail.split('@')[0].slice(1) : 'Institutional User');
+
+    const data = dbStore.getData();
+    let user = data.users.find(u => u.email.toLowerCase() === verifiedEmail);
+
+    if (!user && isDbConnected()) {
+      try {
+        const mongoUser = await UserModel.findOne({ email: verifiedEmail }).lean();
+        if (mongoUser) {
+          user = {
+            id: mongoUser.id || (mongoUser as any)._id?.toString(),
+            name: mongoUser.name,
+            email: mongoUser.email,
+            password: (mongoUser as any).password,
+            passwordHash: mongoUser.passwordHash,
+            role: mongoUser.role,
+            status: mongoUser.status,
+            createdAt: mongoUser.createdAt
+          };
+        }
+      } catch (err: any) {
+        console.warn('[Google Auth] MongoDB query warning:', err.message);
+      }
+    }
+
+    const targetRole = (role === 'faculty' ? 'faculty' : role === 'student' ? 'student' : 'admin') as 'admin' | 'faculty' | 'student';
+
+    // Administrator role does not require a secondary password
+    if (targetRole === 'admin') {
+      if (!user) {
+        user = {
+          id: `usr_admin_${Date.now()}`,
+          name: displayName,
+          email: verifiedEmail,
+          passwordHash: '',
+          role: 'admin',
+          status: 'active',
+          createdAt: new Date().toISOString()
+        };
+        data.users.push(user);
+        dbStore.save();
+      } else {
+        user.role = 'admin';
+        user.status = 'active';
+        if (!user.name || user.name === 'Administrator') {
+          user.name = displayName;
+        }
+        dbStore.save();
+      }
+    } else {
+      // Faculty and Student roles: Check if user already set their custom password
+      const hasPassword = Boolean(user && (user.password || user.passwordHash));
+
+      if (!hasPassword) {
+        // If password was provided in the request, set it now
+        if (password && typeof password === 'string' && password.trim().length >= 6) {
+          const passHash = bcrypt.hashSync(password.trim(), 10);
+          if (!user) {
+            user = {
+              id: `usr_${targetRole}_${Date.now()}`,
+              name: displayName,
+              email: verifiedEmail,
+              password: password.trim(),
+              passwordHash: passHash,
+              role: targetRole,
+              status: 'active',
+              createdAt: new Date().toISOString()
+            };
+            data.users.push(user);
+          } else {
+            user.role = targetRole;
+            user.password = password.trim();
+            user.passwordHash = passHash;
+            user.status = 'active';
+            if (!user.name) user.name = displayName;
+          }
+          dbStore.save();
+        } else {
+          // First-time login: Prompt user to create their account password
+          return res.json({
+            success: true,
+            needsPasswordSetup: true,
+            email: verifiedEmail,
+            name: displayName,
+            role: targetRole,
+            message: `First-time ${targetRole} login. Please create your account password.`
+          });
+        }
+      } else {
+        // Returning user with existing password: ensure role is current and active
+        if (user) {
+          user.role = targetRole;
+          user.status = 'active';
+          if (!user.name) user.name = displayName;
+          dbStore.save();
+        }
+      }
+    }
+
+    if (!user) {
+      return res.status(500).json({ error: 'Failed to establish user account.' });
+    }
+
+    // Ensure profiles exist for student or faculty
+    let profile = null;
+    if (user.role === 'student') {
+      profile = data.students.find(s => s.userId === user!.id) || null;
+      if (!profile) {
+        const rollNumber = dbStore.getNextRollNumber();
+        profile = {
+          id: `std_${user.id.replace('usr_', '')}`,
+          userId: user.id,
+          rollNumber,
+          registrationNumber: rollNumber,
+          departmentId: 'dept_cse',
+          departmentName: 'Computer Science & Engineering',
+          currentSemester: 6,
+          section: 'CSE-A',
+          admissionYear: 2023,
+          academicYear: '2026-2027',
+          batch: '2023-2027',
+          cgpa: 8.5,
+          currentSgpa: 8.5,
+          attendancePercentage: 85.0,
+          mentorFacultyId: 'usr_fac_01',
+          academicStatus: 'Good Standing'
+        };
+        data.students.push(profile);
+
+        const deptSubs = data.subjects.filter(s => s.departmentId === 'dept_cse' && s.semester === 6);
+        deptSubs.forEach(sub => {
+          if (!data.enrollments.some(e => e.studentId === profile!.id && (e.subjectId === sub.id || e.subjectCode === sub.code))) {
+            data.enrollments.push({
+              id: `enr_${profile!.id}_${sub.id}`,
+              studentId: profile!.id,
+              subjectId: sub.id,
+              subjectCode: sub.code,
+              subjectName: sub.name,
+              instructorName: sub.assignedFacultyName || 'Prof. Marcus Vance',
+              credits: sub.credits || 3,
+              attendedClasses: 12,
+              totalClasses: 14,
+              attendancePercentage: 85.7,
+              semester: sub.semester,
+              academicYear: '2026-2027',
+              gradePoints: 8.5,
+              status: 'Enrolled'
+            });
+          }
+        });
+        dbStore.save();
+      }
+    } else if (user.role === 'faculty') {
+      profile = data.faculty.find(f => f.userId === user!.id) || null;
+      if (!profile) {
+        profile = {
+          id: `fac_${user.id.replace('usr_', '')}`,
+          userId: user.id,
+          employeeId: `EMP-${Math.floor(100 + Math.random() * 900)}`,
+          departmentId: 'dept_cse',
+          departmentName: 'Computer Science & Engineering',
+          designation: 'Assistant Professor',
+          highestQualification: 'Ph.D in Computer Science',
+          specialization: 'Distributed Systems & Cloud Architecture',
+          assignedSections: ['CSE-A', 'CSE-B'],
+          assignedSubjectIds: ['sub_cs401', 'sub_cs402'],
+          officeRoom: 'Tech Block 3, Room 410',
+          joiningDate: '2024-06-01',
+          status: 'active'
+        };
+        data.faculty.push(profile);
+        dbStore.save();
+      }
+    }
+
+    if (isDbConnected()) {
+      try {
+        await UserModel.findOneAndUpdate(
+          { email: verifiedEmail },
+          {
+            $set: {
+              name: user.name,
+              email: verifiedEmail,
+              password: user.password,
+              passwordHash: user.passwordHash,
+              role: user.role,
+              status: 'active'
+            },
+            $setOnInsert: {
+              id: user.id,
+              createdAt: new Date()
+            }
+          },
+          { upsert: true, new: true }
+        );
+      } catch (err: any) {
+        console.warn('[Google Auth] MongoDB sync warning:', err.message);
+      }
+    }
+
+    const token = generateToken({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name
+    });
+
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    dbStore.logAudit(
+      'Google Login',
+      user.name,
+      user.role,
+      'Session',
+      `Authenticated via Firebase Google Sign-In (${verifiedEmail}) as ${user.role}`
+    );
+
+    return res.json({
+      success: true,
+      needsPasswordSetup: false,
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        avatar: user.avatar || verifiedUser.picture
+      },
+      profile
+    });
+  } catch (err: any) {
+    console.error('[Google Auth] Verification error:', err.message);
+    return res.status(401).json({
+      error: err.message || 'Firebase Google authentication failed. Please verify token.'
+    });
+  }
+});
+
+// POST /api/auth/google/setup-password
+// Creates a password for a verified Google account during first-time onboarding
+router.post('/google/setup-password', async (req: Request, res: Response) => {
+  const { email, name, role = 'faculty', password } = req.body;
+
+  if (!email || !password || typeof password !== 'string' || password.trim().length < 6) {
+    return res.status(400).json({ error: 'Valid email and a password with at least 6 characters are required.' });
+  }
+
+  const cleanEmail = email.toLowerCase().trim();
+  const cleanPassword = password.trim();
+  const targetRole = (role === 'student' ? 'student' : role === 'admin' ? 'admin' : 'faculty') as 'admin' | 'faculty' | 'student';
+  const displayName = name || (cleanEmail.split('@')[0] ? cleanEmail.split('@')[0].charAt(0).toUpperCase() + cleanEmail.split('@')[0].slice(1) : 'Institutional User');
+
+  const data = dbStore.getData();
+  let user = data.users.find(u => u.email.toLowerCase() === cleanEmail);
+  const passHash = bcrypt.hashSync(cleanPassword, 10);
+
+  if (!user) {
+    user = {
+      id: `usr_${targetRole}_${Date.now()}`,
+      name: displayName,
+      email: cleanEmail,
+      password: cleanPassword,
+      passwordHash: passHash,
+      role: targetRole,
+      status: 'active',
+      createdAt: new Date().toISOString()
+    };
+    data.users.push(user);
+  } else {
+    user.name = displayName;
+    user.role = targetRole;
+    user.password = cleanPassword;
+    user.passwordHash = passHash;
+    user.status = 'active';
+  }
+
+  // Ensure role profile exists
+  let profile = null;
+  if (targetRole === 'student') {
+    profile = data.students.find(s => s.userId === user!.id) || null;
+    if (!profile) {
+      const rollNumber = dbStore.getNextRollNumber();
+      profile = {
+        id: `std_${user.id.replace('usr_', '')}`,
+        userId: user.id,
+        rollNumber,
+        registrationNumber: rollNumber,
+        departmentId: 'dept_cse',
+        departmentName: 'Computer Science & Engineering',
+        currentSemester: 6,
+        section: 'CSE-A',
+        admissionYear: 2023,
+        academicYear: '2026-2027',
+        batch: '2023-2027',
+        cgpa: 8.5,
+        currentSgpa: 8.5,
+        attendancePercentage: 85.0,
+        mentorFacultyId: 'usr_fac_01',
+        academicStatus: 'Good Standing'
+      };
+      data.students.push(profile);
+
+      const deptSubs = data.subjects.filter(s => s.departmentId === 'dept_cse' && s.semester === 6);
+      deptSubs.forEach(sub => {
+        if (!data.enrollments.some(e => e.studentId === profile!.id && (e.subjectId === sub.id || e.subjectCode === sub.code))) {
+          data.enrollments.push({
+            id: `enr_${profile!.id}_${sub.id}`,
+            studentId: profile!.id,
+            subjectId: sub.id,
+            subjectCode: sub.code,
+            subjectName: sub.name,
+            instructorName: sub.assignedFacultyName || 'Prof. Marcus Vance',
+            credits: sub.credits || 3,
+            attendedClasses: 12,
+            totalClasses: 14,
+            attendancePercentage: 85.7,
+            semester: sub.semester,
+            academicYear: '2026-2027',
+            gradePoints: 8.5,
+            status: 'Enrolled'
+          });
+        }
+      });
+    }
+  } else if (targetRole === 'faculty') {
+    profile = data.faculty.find(f => f.userId === user!.id) || null;
+    if (!profile) {
+      profile = {
+        id: `fac_${user.id.replace('usr_', '')}`,
+        userId: user.id,
+        employeeId: `EMP-${Math.floor(100 + Math.random() * 900)}`,
+        departmentId: 'dept_cse',
+        departmentName: 'Computer Science & Engineering',
+        designation: 'Assistant Professor',
+        highestQualification: 'Ph.D in Computer Science',
+        specialization: 'Distributed Systems & Cloud Architecture',
+        assignedSections: ['CSE-A', 'CSE-B'],
+        assignedSubjectIds: ['sub_cs401', 'sub_cs402'],
+        officeRoom: 'Tech Block 3, Room 410',
+        joiningDate: '2024-06-01',
+        status: 'active'
+      };
+      data.faculty.push(profile);
+    }
+  }
+
+  dbStore.save();
+
+  if (isDbConnected()) {
+    try {
+      await UserModel.findOneAndUpdate(
+        { email: cleanEmail },
+        {
+          $set: {
+            name: user.name,
+            email: cleanEmail,
+            password: cleanPassword,
+            passwordHash: passHash,
+            role: targetRole,
+            status: 'active'
+          },
+          $setOnInsert: {
+            id: user.id,
+            createdAt: new Date()
+          }
+        },
+        { upsert: true, new: true }
+      );
+    } catch (err: any) {
+      console.warn('[Google Auth] MongoDB setup-password warning:', err.message);
+    }
+  }
+
+  dbStore.logAudit(
+    'Password Setup',
+    user.name,
+    user.role,
+    'Security',
+    `Created initial login password for verified Google account (${cleanEmail})`
+  );
+
+  return res.json({
+    success: true,
+    message: 'Account password created successfully. You can now log in with your email and password.',
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status
+    },
+    profile
+  });
+});
+
 // POST /api/auth/logout
 router.post('/logout', (req: Request, res: Response) => {
   const user = (req as any).user;
