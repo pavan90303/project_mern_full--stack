@@ -567,9 +567,13 @@ export class EduTrackApi {
         return { success: true, user };
       }
 
-      // For Faculty or Student: Check if user already has a password set
-      const hasPassword = Boolean(user && (user.password || (user as any).passwordHash));
-      if (!hasPassword) {
+      // For Faculty or Student: Check if user already completed role password setup
+      const hasRolePassword = Boolean(
+        user && (
+          role === 'faculty' ? (user as any).facultyPasswordSet : (user as any).studentPasswordSet
+        )
+      );
+      if (!hasRolePassword) {
         return {
           success: true,
           needsPasswordSetup: true,
@@ -629,6 +633,8 @@ export class EduTrackApi {
         email: cleanEmail,
         password: cleanPassword,
         role: role,
+        facultyPasswordSet: role === 'faculty',
+        studentPasswordSet: role === 'student',
         phone: '+91 98765 43210',
         status: 'active',
         createdAt: new Date().toISOString().split('T')[0]
@@ -638,6 +644,8 @@ export class EduTrackApi {
       user.name = displayName;
       user.role = role;
       user.password = cleanPassword;
+      if (role === 'faculty') (user as any).facultyPasswordSet = true;
+      if (role === 'student') (user as any).studentPasswordSet = true;
       user.status = 'active';
     }
     saveStorage(KEYS.USERS, users);
@@ -755,8 +763,8 @@ export class EduTrackApi {
 
     if (user) {
       if (expectedRole && user.role !== expectedRole) {
-        if (expectedRole === 'admin') {
-          user.role = 'admin';
+        if (expectedRole === 'admin' || expectedRole === 'faculty' || expectedRole === 'student') {
+          user.role = expectedRole;
           saveStorage(KEYS.USERS, users);
         } else {
           return null;

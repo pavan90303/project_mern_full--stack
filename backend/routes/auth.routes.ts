@@ -66,14 +66,10 @@ router.post('/login', (req: Request, res: Response) => {
 
   // Check expected role if specified by the active tab
   if (role && user.role !== role) {
-    if (role === 'admin') {
-      user.role = 'admin';
+    if (role === 'admin' || role === 'faculty' || role === 'student') {
+      user.role = role;
+      user.status = 'active';
       dbStore.save();
-    } else {
-      const roleLabels: Record<string, string> = { admin: 'Admin', faculty: 'Faculty', student: 'Student' };
-      return res.status(403).json({ 
-        error: `This account is registered for ${roleLabels[user.role] || user.role} access. Please switch to the ${roleLabels[user.role] || user.role} Login tab.` 
-      });
     }
   }
 
@@ -426,10 +422,14 @@ router.post('/google', async (req: Request, res: Response) => {
         dbStore.save();
       }
     } else {
-      // Faculty and Student roles: Check if user already set their custom password
-      const hasPassword = Boolean(user && (user.password || user.passwordHash));
+      // Faculty and Student roles: First-time Google login requires setting a role password
+      const hasRolePassword = Boolean(
+        user && (
+          targetRole === 'faculty' ? (user as any).facultyPasswordSet : (user as any).studentPasswordSet
+        )
+      );
 
-      if (!hasPassword) {
+      if (!hasRolePassword) {
         // If password was provided in the request, set it now
         if (password && typeof password === 'string' && password.trim().length >= 6) {
           const passHash = bcrypt.hashSync(password.trim(), 10);
@@ -441,6 +441,8 @@ router.post('/google', async (req: Request, res: Response) => {
               password: password.trim(),
               passwordHash: passHash,
               role: targetRole,
+              facultyPasswordSet: targetRole === 'faculty',
+              studentPasswordSet: targetRole === 'student',
               status: 'active',
               createdAt: new Date().toISOString()
             };
@@ -449,23 +451,25 @@ router.post('/google', async (req: Request, res: Response) => {
             user.role = targetRole;
             user.password = password.trim();
             user.passwordHash = passHash;
+            if (targetRole === 'faculty') (user as any).facultyPasswordSet = true;
+            if (targetRole === 'student') (user as any).studentPasswordSet = true;
             user.status = 'active';
             if (!user.name) user.name = displayName;
           }
           dbStore.save();
         } else {
-          // First-time login: Prompt user to create their account password
+          // First-time login: Prompt user to create their account password for this verified email
           return res.json({
             success: true,
             needsPasswordSetup: true,
             email: verifiedEmail,
             name: displayName,
             role: targetRole,
-            message: `First-time ${targetRole} login. Please create your account password.`
+            message: `First-time ${targetRole} verification completed. Please create your account password.`
           });
         }
       } else {
-        // Returning user with existing password: ensure role is current and active
+        // Returning user with established role password: log in directly
         if (user) {
           user.role = targetRole;
           user.status = 'active';
@@ -646,6 +650,8 @@ router.post('/google/setup-password', async (req: Request, res: Response) => {
       password: cleanPassword,
       passwordHash: passHash,
       role: targetRole,
+      facultyPasswordSet: targetRole === 'faculty',
+      studentPasswordSet: targetRole === 'student',
       status: 'active',
       createdAt: new Date().toISOString()
     };
@@ -655,6 +661,8 @@ router.post('/google/setup-password', async (req: Request, res: Response) => {
     user.role = targetRole;
     user.password = cleanPassword;
     user.passwordHash = passHash;
+    if (targetRole === 'faculty') (user as any).facultyPasswordSet = true;
+    if (targetRole === 'student') (user as any).studentPasswordSet = true;
     user.status = 'active';
   }
 

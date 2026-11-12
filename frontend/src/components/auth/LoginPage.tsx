@@ -572,11 +572,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       <span>
                         {activeRole === 'admin'
                           ? 'Sign in with Google'
-                          : `Sign in with Google (${roleConfig.tabLabel})`}
+                          : `Verify with Google (${roleConfig.tabLabel})`}
                       </span>
                     </>
                   )}
                 </button>
+
+                {activeRole !== 'admin' && (
+                  <p className="text-[11px] text-center text-slate-500 dark:text-slate-400">
+                    First-time: verify Google email and create password. Second-time: log in using your verified email and password above.
+                  </p>
+                )}
               </div>
             </>
           )}
