@@ -1,11 +1,11 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 
 const router = Router();
 
 // GET /api/departments
 router.get('/', (req: Request, res: Response) => {
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const depts = data.departments.map(d => {
     const studentCount = data.students.filter(s => s.departmentId === d.id).length;
     const facultyCount = data.faculty.filter(f => f.departmentId === d.id).length;
@@ -25,7 +25,7 @@ router.post('/', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Code and Name are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const cleanCode = code.trim().toUpperCase();
 
   if (data.departments.some(d => d.code === cleanCode)) {
@@ -80,8 +80,8 @@ router.post('/', (req: Request, res: Response) => {
     }
   }
 
-  dbStore.save();
-  dbStore.logAudit('Department Created', (req as any).user?.name || 'Admin', 'admin', `Dept ${newDept.code}`, `Created department "${newDept.name}" with ${numSections} sections`);
+  getStore(req).save();
+  getStore(req).logAudit('Department Created', (req as any).user?.name || 'Admin', 'admin', `Dept ${newDept.code}`, `Created department "${newDept.name}" with ${numSections} sections`);
 
   return res.status(201).json(newDept);
 });
@@ -90,7 +90,7 @@ router.post('/', (req: Request, res: Response) => {
 router.put('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const updates = req.body;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const idx = data.departments.findIndex(d => d.id === id);
   if (idx === -1) {
@@ -98,8 +98,8 @@ router.put('/:id', (req: Request, res: Response) => {
   }
 
   data.departments[idx] = { ...data.departments[idx], ...updates };
-  dbStore.save();
-  dbStore.logAudit('Department Updated', (req as any).user?.name || 'Admin', 'admin', `Dept ${data.departments[idx].code}`, 'Updated department details');
+  getStore(req).save();
+  getStore(req).logAudit('Department Updated', (req as any).user?.name || 'Admin', 'admin', `Dept ${data.departments[idx].code}`, 'Updated department details');
 
   return res.json(data.departments[idx]);
 });
@@ -107,7 +107,7 @@ router.put('/:id', (req: Request, res: Response) => {
 // DELETE /api/departments/:id
 router.delete('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const dept = data.departments.find(d => d.id === id);
   if (!dept) {
@@ -120,10 +120,11 @@ router.delete('/:id', (req: Request, res: Response) => {
   }
 
   data.departments = data.departments.filter(d => d.id !== id);
-  dbStore.save();
-  dbStore.logAudit('Department Deleted', (req as any).user?.name || 'Admin', 'admin', `Dept ${dept.code}`, `Removed department ${dept.name}`);
+  getStore(req).save();
+  getStore(req).logAudit('Department Deleted', (req as any).user?.name || 'Admin', 'admin', `Dept ${dept.code}`, `Removed department ${dept.name}`);
 
   return res.json({ message: 'Department successfully deleted.' });
 });
 
 export default router;
+

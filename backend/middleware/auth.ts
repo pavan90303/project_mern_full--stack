@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { tenantManager } from '../store/storage';
+import type { StorageEngine } from '../store/storage';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'edutrack_super_secure_academic_jwt_secret_2026';
 
@@ -34,12 +36,23 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 
   if (!token) {
     (req as any).user = undefined;
+    (req as any).store = tenantManager.global();
     return next();
   }
 
   const decoded = verifyToken(token);
   if (decoded) {
     (req as any).user = decoded;
+    // Determine which admin workspace to load:
+    // - Admin → their own email is the workspace key
+    // - Faculty/Student → the adminId embedded in their JWT (set at login)
+    const adminId: string =
+      decoded.role === 'admin'
+        ? (decoded.email || decoded.id)
+        : ((decoded as any).adminId || decoded.email || decoded.id);
+    (req as any).store = tenantManager.forAdmin(adminId);
+  } else {
+    (req as any).store = tenantManager.global();
   }
   next();
 }
@@ -64,4 +77,12 @@ export function requireRole(allowedRoles: Array<'student' | 'faculty' | 'admin'>
     }
     next();
   };
+}
+
+/**
+ * Helper: get the tenant store from a request object.
+ * Falls back to global store if no store was injected.
+ */
+export function getStore(req: Request): StorageEngine {
+  return (req as any).store || tenantManager.global();
 }

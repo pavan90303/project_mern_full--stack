@@ -1,5 +1,5 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { emitToAll } from '../socket';
 
 const router = Router();
@@ -7,7 +7,7 @@ const router = Router();
 // GET /api/subjects
 router.get('/', (req: Request, res: Response) => {
   const { departmentId, semester } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   let list = data.subjects;
   if (departmentId && departmentId !== 'all') {
@@ -47,7 +47,7 @@ router.post('/', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Semester must be between 1 and 8 for B.Tech/B.E. degree.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const cleanCode = code.trim().toUpperCase();
 
   const dept = data.departments.find(d => d.id === departmentId);
@@ -84,12 +84,12 @@ router.post('/', (req: Request, res: Response) => {
   };
 
   data.subjects.push(newSubject);
-  dbStore.save();
+  getStore(req).save();
 
   emitToAll('academic:updated', { type: 'subject', subject: newSubject, subjects: data.subjects });
   emitToAll('subject:created', { subject: newSubject, subjects: data.subjects });
 
-  dbStore.logAudit('Subject Created', (req as any).user?.name || 'Admin', 'admin', `Subject ${newSubject.code}`, `Added curriculum: ${newSubject.name} (${newSubject.type}, Sem ${semNum})`);
+  getStore(req).logAudit('Subject Created', (req as any).user?.name || 'Admin', 'admin', `Subject ${newSubject.code}`, `Added curriculum: ${newSubject.name} (${newSubject.type}, Sem ${semNum})`);
 
   return res.status(201).json(newSubject);
 });
@@ -98,7 +98,7 @@ router.post('/', (req: Request, res: Response) => {
 router.put('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const updates = req.body;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const idx = data.subjects.findIndex(s => s.id === id);
   if (idx === -1) {
@@ -106,14 +106,15 @@ router.put('/:id', (req: Request, res: Response) => {
   }
 
   data.subjects[idx] = { ...data.subjects[idx], ...updates };
-  dbStore.save();
+  getStore(req).save();
 
   emitToAll('academic:updated', { type: 'subject', subject: data.subjects[idx], subjects: data.subjects });
   emitToAll('subject:updated', { subject: data.subjects[idx], subjects: data.subjects });
 
-  dbStore.logAudit('Subject Updated', (req as any).user?.name || 'Admin', 'admin', `Subject ${data.subjects[idx].code}`, 'Updated curriculum metadata');
+  getStore(req).logAudit('Subject Updated', (req as any).user?.name || 'Admin', 'admin', `Subject ${data.subjects[idx].code}`, 'Updated curriculum metadata');
 
   return res.json(data.subjects[idx]);
 });
 
 export default router;
+

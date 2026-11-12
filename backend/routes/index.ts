@@ -14,7 +14,8 @@ import analyticsRoutes from './analytics.routes';
 import sectionRoutes from './section.routes';
 import onlineExamRoutes from './onlineExam.routes';
 import { isDbConnected, connectDB, getDbConnectionInfo } from '../db/connection';
-import { dbStore } from '../store/storage';
+import { dbStore, tenantManager } from '../store/storage';
+import { getStore } from '../middleware/auth';
 import fs from 'fs';
 import path from 'path';
 
@@ -35,9 +36,11 @@ apiRouter.get('/health', (req: Request, res: Response) => {
 // Database status & configuration endpoint
 apiRouter.get('/database/status', (req: Request, res: Response) => {
   const info = getDbConnectionInfo();
-  const data = dbStore.getData();
+  const store = getStore(req);
+  const data = store.getData();
   res.json({
     ...info,
+    adminWorkspace: (req as any).user?.email || 'global',
     collections: 18,
     counts: {
       users: data.users?.length || 0,
@@ -57,9 +60,10 @@ apiRouter.get('/database/status', (req: Request, res: Response) => {
   });
 });
 
-// View complete database records (all 22 collections)
+// View complete database records for current admin's workspace
 apiRouter.get('/database/data', (req: Request, res: Response) => {
-  const data = dbStore.getData();
+  const store = getStore(req);
+  const data = store.getData();
   res.setHeader('Content-Type', 'application/json');
   return res.send(JSON.stringify(data, null, 2));
 });
@@ -72,8 +76,9 @@ apiRouter.post('/database/connect', async (req: Request, res: Response) => {
   try {
     const success = await connectDB(targetUri);
     if (success) {
-      // Sync all current data to MongoDB collections immediately
-      await dbStore.syncToMongoDB();
+      // Sync current admin's data to MongoDB
+      const store = getStore(req);
+      await store.syncToMongoDB();
 
       // Persist URI in .env if valid
       try {

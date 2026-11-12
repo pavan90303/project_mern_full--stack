@@ -1,5 +1,5 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { emitToCohort, emitToRole, emitToStudent, emitToAll } from '../socket';
 
 const router = Router();
@@ -141,7 +141,7 @@ export function normalizeQuestionOptions(options: any): { key: string; text: str
 // Retrieve exam attempts for synchronization
 router.get('/attempts/all', (req: Request, res: Response) => {
   const { studentId, examId } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   let attempts = data.examAttempts || [];
   if (studentId) {
     attempts = attempts.filter(a => a.studentId === studentId);
@@ -156,7 +156,7 @@ router.get('/attempts/all', (req: Request, res: Response) => {
 // List examinations with role & relationship filtering
 router.get('/', (req: Request, res: Response) => {
   const user = (req as any).user;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const { facultyId, subjectId, semester, section, status } = req.query;
 
   let exams = [...(data.onlineExams || [])];
@@ -269,7 +269,7 @@ router.get('/', (req: Request, res: Response) => {
 router.get('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const user = (req as any).user;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const exam = (data.onlineExams || []).find(e => e.id === id);
   if (!exam) {
@@ -374,7 +374,7 @@ router.post('/', (req: Request, res: Response) => {
     });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const sub = data.subjects.find(s => s.id === subjectId || s.code === subjectCode);
   const dept = data.departments.find(d => d.id === departmentId || d.code === sub?.departmentId);
 
@@ -437,7 +437,7 @@ router.post('/', (req: Request, res: Response) => {
 
   if (!data.onlineExams) data.onlineExams = [];
   data.onlineExams.unshift(newExam);
-  dbStore.save();
+  getStore(req).save();
 
   if (initialStatus === 'PUBLISHED') {
     emitToCohort(newExam.departmentId, newExam.semester, newExam.section, 'online_exam:published', newExam);
@@ -445,7 +445,7 @@ router.post('/', (req: Request, res: Response) => {
     emitToAll('online_exam:published', newExam);
   }
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Online Exam Created',
     user?.name || 'Faculty',
     'faculty',
@@ -461,7 +461,7 @@ router.post('/', (req: Request, res: Response) => {
 router.put('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const user = (req as any).user;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const idx = (data.onlineExams || []).findIndex(e => e.id === id);
   if (idx === -1) {
@@ -518,7 +518,7 @@ router.put('/:id', (req: Request, res: Response) => {
   }
 
   data.onlineExams[idx] = updatedExam;
-  dbStore.save();
+  getStore(req).save();
 
   return res.json(updatedExam);
 });
@@ -526,7 +526,7 @@ router.put('/:id', (req: Request, res: Response) => {
 // DELETE /api/online-exams/:id
 router.delete('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const idx = (data.onlineExams || []).findIndex(e => e.id === id);
   if (idx === -1) {
@@ -536,7 +536,7 @@ router.delete('/:id', (req: Request, res: Response) => {
   data.onlineExams.splice(idx, 1);
   // Clean attempts
   data.examAttempts = (data.examAttempts || []).filter(a => a.examId !== id);
-  dbStore.save();
+  getStore(req).save();
 
   return res.json({ message: 'Online examination deleted successfully.' });
 });
@@ -544,7 +544,7 @@ router.delete('/:id', (req: Request, res: Response) => {
 // POST /api/online-exams/:id/publish
 router.post('/:id/publish', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const exam = (data.onlineExams || []).find(e => e.id === id);
   if (!exam) {
@@ -564,7 +564,7 @@ router.post('/:id/publish', (req: Request, res: Response) => {
 
   exam.status = 'PUBLISHED';
   exam.updatedAt = new Date().toISOString();
-  dbStore.save();
+  getStore(req).save();
 
   emitToCohort(exam.departmentId, exam.semester, exam.section, 'online_exam:published', exam);
   emitToRole('faculty', 'online_exam:published', exam);
@@ -578,7 +578,7 @@ router.post('/:id/publish', (req: Request, res: Response) => {
 router.post('/:id/release-results', (req: Request, res: Response) => {
   const { id } = req.params;
   const user = (req as any).user;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const exam = (data.onlineExams || []).find(e => e.id === id);
   if (!exam) {
@@ -654,12 +654,12 @@ router.post('/:id/release-results', (req: Request, res: Response) => {
     });
   });
 
-  dbStore.save();
+  getStore(req).save();
 
   emitToCohort(exam.departmentId, exam.semester, exam.section, 'online_exam:results_released', { examId: id });
   emitToRole('faculty', 'online_exam:results_released', { examId: id });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Exam Results Released',
     user?.name || 'Faculty',
     'faculty',
@@ -674,7 +674,7 @@ router.post('/:id/release-results', (req: Request, res: Response) => {
 // Faculty Analytics & Submission Roster
 router.get('/:id/results', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const exam = (data.onlineExams || []).find(e => e.id === id);
   if (!exam) {
@@ -770,7 +770,7 @@ router.get('/:id/results', (req: Request, res: Response) => {
 router.post('/:id/start', (req: Request, res: Response) => {
   const { id } = req.params;
   const user = (req as any).user;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const exam = (data.onlineExams || []).find(e => e.id === id);
   if (!exam) {
@@ -842,7 +842,7 @@ router.post('/:id/start', (req: Request, res: Response) => {
       activeAttempt.status = 'EXPIRED';
       activeAttempt.submitTime = new Date().toISOString();
       activeAttempt.timeSpentSeconds = totalAllowedSeconds;
-      dbStore.save();
+      getStore(req).save();
       return res.status(400).json({ error: 'Examination duration has expired.' });
     }
 
@@ -894,7 +894,7 @@ router.post('/:id/start', (req: Request, res: Response) => {
 
   if (!data.examAttempts) data.examAttempts = [];
   data.examAttempts.push(newAttempt);
-  dbStore.save();
+  getStore(req).save();
 
   const sanitizedQuestions = (exam.questions || []).map((q: any) => {
     const { correctAnswer, explanation, ...safeQ } = q;
@@ -919,7 +919,7 @@ router.post('/:id/start', (req: Request, res: Response) => {
 router.post('/:id/save-answer', (req: Request, res: Response) => {
   const { id } = req.params;
   const user = (req as any).user;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const { questionId, selectedOption, isMarkedForReview } = req.body;
 
   const attempt = (data.examAttempts || []).find(
@@ -936,7 +936,7 @@ router.post('/:id/save-answer', (req: Request, res: Response) => {
     const totalAllowedSeconds = exam.durationMinutes * 60 + 30; // 30s grace for network
     if (elapsedSeconds > totalAllowedSeconds) {
       attempt.status = 'EXPIRED';
-      dbStore.save();
+      getStore(req).save();
       return res.status(400).json({ error: 'Examination duration expired. Answer cannot be saved.' });
     }
   }
@@ -961,7 +961,7 @@ router.post('/:id/save-answer', (req: Request, res: Response) => {
     }
   }
 
-  dbStore.save();
+  getStore(req).save();
   return res.json({ success: true, savedAt: new Date().toISOString() });
 });
 
@@ -970,7 +970,7 @@ router.post('/:id/save-answer', (req: Request, res: Response) => {
 router.post('/:id/submit', (req: Request, res: Response) => {
   const { id } = req.params;
   const user = (req as any).user;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const exam = (data.onlineExams || []).find(e => e.id === id);
   if (!exam) {
@@ -1061,7 +1061,7 @@ router.post('/:id/submit', (req: Request, res: Response) => {
     exam.resultsReleased = true;
   }
 
-  dbStore.save();
+  getStore(req).save();
 
   emitToRole('faculty', 'online_exam:submitted', {
     examId: exam.id,
@@ -1074,7 +1074,7 @@ router.post('/:id/submit', (req: Request, res: Response) => {
     passed
   });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Exam Submitted',
     attempt.studentName,
     'student',

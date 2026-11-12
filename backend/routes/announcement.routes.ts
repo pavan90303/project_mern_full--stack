@@ -1,5 +1,5 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { emitToCohort, emitToRole, emitToAll } from '../socket';
 
 const router = Router();
@@ -7,7 +7,7 @@ const router = Router();
 // GET /api/announcements
 router.get('/', (req: Request, res: Response) => {
   const { audience, departmentId, semester } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   let list = data.announcements;
   if (audience) {
@@ -30,7 +30,7 @@ router.post('/', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Title, message, and audience (STUDENTS | FACULTY | ALL) are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const user = (req as any).user;
 
   const newAnn = {
@@ -47,7 +47,7 @@ router.post('/', (req: Request, res: Response) => {
   };
 
   data.announcements.unshift(newAnn);
-  dbStore.save();
+  getStore(req).save();
 
   // Real-time synchronization to target groups
   if (newAnn.departmentId && newAnn.semester) {
@@ -63,7 +63,7 @@ router.post('/', (req: Request, res: Response) => {
   }
   emitToRole('admin', 'announcement:published', newAnn);
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Announcement Broadcast',
     user?.name || 'Admin',
     user?.role || 'admin',
@@ -77,13 +77,14 @@ router.post('/', (req: Request, res: Response) => {
 // DELETE /api/announcements/:id
 router.delete('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   data.announcements = data.announcements.filter(a => a.id !== id);
-  dbStore.save();
+  getStore(req).save();
 
   emitToAll('announcement:deleted', { id });
-  dbStore.logAudit('Announcement Removed', (req as any).user?.name || 'Admin', 'admin', `Notice ${id}`, 'Removed circular');
+  getStore(req).logAudit('Announcement Removed', (req as any).user?.name || 'Admin', 'admin', `Notice ${id}`, 'Removed circular');
   return res.json({ message: 'Announcement deleted.' });
 });
 
 export default router;
+

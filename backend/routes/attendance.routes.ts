@@ -1,5 +1,5 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { emitToStudent, emitToCohort, emitToRole, emitToAll } from '../socket';
 
 const router = Router();
@@ -7,7 +7,7 @@ const router = Router();
 // GET /api/attendance/sessions
 router.get('/sessions', (req: Request, res: Response) => {
   const { subjectId, semester, section, date, facultyId } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   let list = data.attendanceSessions;
   if (subjectId) {
@@ -36,7 +36,7 @@ router.post('/sessions', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Subject, date, and student attendance records are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const subject = data.subjects.find(s => s.id === subjectId);
   const user = (req as any).user;
 
@@ -55,12 +55,12 @@ router.post('/sessions', (req: Request, res: Response) => {
   };
 
   data.attendanceSessions.unshift(newSession);
-  dbStore.save();
+  getStore(req).save();
 
   const studentIds = records.map((r: any) => r.studentId);
   studentIds.forEach((sid: string) => {
-    dbStore.recalculateAttendance(sid);
-    const updatedStudent = dbStore.getData().students.find(s => s.id === sid);
+    getStore(req).recalculateAttendance(sid);
+    const updatedStudent = getStore(req).getData().students.find(s => s.id === sid);
     const calculatedPct = updatedStudent?.attendancePercentage ?? 100;
     emitToStudent(sid, 'attendance:updated', {
       studentId: sid,
@@ -83,7 +83,7 @@ router.post('/sessions', (req: Request, res: Response) => {
   emitToRole('student', 'attendance:session_recorded', { session: newSession });
   emitToAll('attendance:session_recorded', { session: newSession });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Attendance Recorded',
     user?.name || 'Faculty',
     user?.role || 'faculty',
@@ -95,3 +95,4 @@ router.post('/sessions', (req: Request, res: Response) => {
 });
 
 export default router;
+

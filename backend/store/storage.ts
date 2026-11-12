@@ -35,6 +35,24 @@ const DATA_DIR = fs.existsSync(path.resolve(process.cwd(), 'server/data'))
     : path.resolve(__dirname, '../data'));
 const DB_FILE = path.join(DATA_DIR, 'edutrack_db.json');
 
+// =====================================================================
+// TENANT KEY HELPER
+// Converts an admin email/id into a safe filesystem key
+// e.g. "pavan90303@gmail.com" -> "pavan90303_gmail_com"
+// =====================================================================
+function makeTenantKey(adminId: string): string {
+  return adminId
+    .toLowerCase()
+    .replace(/[@.+]/g, '_')
+    .replace(/[^a-z0-9_]/g, '')
+    .substring(0, 60);
+}
+
+function getTenantDbFile(adminId: string): string {
+  const key = makeTenantKey(adminId);
+  return path.join(DATA_DIR, `edutrack_db_${key}.json`);
+}
+
 // Ensure directory exists
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -720,15 +738,24 @@ function getDefaultSeedData(): StoredData {
 
 class StorageEngine {
   private data: StoredData;
+  private dbFile: string;
+  private adminId: string;
 
-  constructor() {
+  constructor(adminId?: string) {
+    // If no adminId, use the global shared file (backward-compat for auth routes)
+    this.adminId = adminId || '__global__';
+    this.dbFile = adminId ? getTenantDbFile(adminId) : DB_FILE;
     this.data = this.load();
+  }
+
+  public getAdminId(): string {
+    return this.adminId;
   }
 
   private load(): StoredData {
     try {
-      if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+      if (fs.existsSync(this.dbFile)) {
+        const raw = fs.readFileSync(this.dbFile, 'utf-8');
         const parsed: StoredData = JSON.parse(raw);
 
         // Ensure new collections exist
@@ -870,7 +897,9 @@ class StorageEngine {
 
   private saveDirect(d: StoredData): void {
     try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(d, null, 2), 'utf-8');
+      // Ensure the DATA_DIR exists (in case of a new tenant)
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(this.dbFile, JSON.stringify(d, null, 2), 'utf-8');
     } catch (err) {
       console.error('[StorageEngine] Failed to write DB file:', err);
     }
@@ -1381,4 +1410,94 @@ class StorageEngine {
   }
 }
 
-export const dbStore = new StorageEngine();
+// =====================================================================
+// TENANT STORAGE MANAGER
+// One StorageEngine instance per admin, identified by their email/userId.
+// The global `dbStore` is kept for backward-compat in auth routes only.
+// =====================================================================
+class TenantStorageManager {
+  private engines: Map<string, StorageEngine> = new Map();
+
+  /**
+   * Get (or create) the StorageEngine for a given admin.
+   * @param adminId  The admin's email or user-id from the JWT token.
+   */
+  public forAdmin(adminId: string): StorageEngine {
+    if (!adminId || adminId === '__global__') return this.global();
+    const key = makeTenantKey(adminId);
+    if (!this.engines.has(key)) {
+      console.log(`[TenantStorage] Creating workspace for admin: ${adminId} (key: ${key})`);
+      this.engines.set(key, new StorageEngine(adminId));
+    }
+    return this.engines.get(key)!;
+  }
+
+  /** The legacy / global store – used only by auth routes before a user is known */
+  public global(): StorageEngine {
+    if (!this.engines.has('__global__')) {
+      this.engines.set('__global__', new StorageEngine());
+    }
+    return this.engines.get('__global__')!;
+  }
+
+  /** List all active admin workspaces (for admin/super-admin tooling) */
+  public listTenants(): string[] {
+    return Array.from(this.engines.keys()).filter(k => k !== '__global__');
+  }
+
+  /**
+   * Find which admin workspace contains a faculty or student user by email/rollNumber.
+   * Scans all existing per-admin DB files in DATA_DIR.
+   * Returns { store, adminId } or null if not found.
+   */
+  public findTenantForUser(identifier: string): { store: StorageEngine; adminId: string } | null {
+    const cleanId = identifier.trim().toLowerCase();
+
+    // Helper: check if a data object contains the user
+    const findInData = (data: StoredData): boolean => {
+      if (data.users?.some(u => u.email?.toLowerCase() === cleanId)) return true;
+      if (data.students?.some(s =>
+        s.rollNumber?.toLowerCase() === cleanId ||
+        s.registrationNumber?.toLowerCase() === cleanId
+      )) return true;
+      if (data.faculty?.some(f => f.employeeId?.toLowerCase() === cleanId)) return true;
+      return false;
+    };
+
+    // 1. Check already-loaded engines first (fastest path)
+    for (const [key, engine] of this.engines) {
+      if (key === '__global__') continue;
+      if (findInData(engine.getData())) {
+        return { store: engine, adminId: key };
+      }
+    }
+
+    // 2. Scan DATA_DIR for all per-admin DB files not yet loaded
+    try {
+      const files = fs.readdirSync(DATA_DIR).filter(
+        f => f.startsWith('edutrack_db_') && f.endsWith('.json')
+      );
+      for (const file of files) {
+        const adminKey = file.replace('edutrack_db_', '').replace('.json', '');
+        if (this.engines.has(adminKey)) continue; // already checked above
+        try {
+          const raw = fs.readFileSync(path.join(DATA_DIR, file), 'utf-8');
+          const data: StoredData = JSON.parse(raw);
+          if (findInData(data)) {
+            // Load this engine
+            const engine = this.forAdmin(adminKey);
+            return { store: engine, adminId: adminKey };
+          }
+        } catch {}
+      }
+    } catch {}
+
+    return null;
+  }
+}
+
+export const tenantManager = new TenantStorageManager();
+export { StorageEngine };
+
+// Legacy singleton kept for auth routes that run before we know the admin
+export const dbStore: StorageEngine = tenantManager.global();

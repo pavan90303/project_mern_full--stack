@@ -1,5 +1,5 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { emitToStudent, emitToCohort, emitToFaculty, emitToRole, emitToAll } from '../socket';
 
 const router = Router();
@@ -7,7 +7,7 @@ const router = Router();
 // GET /api/assignments
 router.get('/', (req: Request, res: Response) => {
   const { subjectId, semester, section, facultyId } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   let list = data.assignments;
   if (subjectId) {
@@ -38,7 +38,7 @@ router.post('/', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Date is invalid: Due date cannot be in the past. Faculty must set today or a future date.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const subject = data.subjects.find(s => s.id === subjectId);
   const user = (req as any).user;
 
@@ -62,7 +62,7 @@ router.post('/', (req: Request, res: Response) => {
   };
 
   data.assignments.unshift(newAssignment);
-  dbStore.save();
+  getStore(req).save();
 
   const deptId = subject ? subject.departmentId : 'dept_cse';
   emitToCohort(deptId, newAssignment.semester, newAssignment.section, 'assignment:created', newAssignment);
@@ -70,7 +70,7 @@ router.post('/', (req: Request, res: Response) => {
   emitToRole('faculty', 'assignment:created', newAssignment);
   emitToAll('assignment:created', newAssignment);
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Assignment Created',
     user?.name || 'Faculty',
     'faculty',
@@ -85,7 +85,7 @@ router.post('/', (req: Request, res: Response) => {
 router.put('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const { title, dueDate, instructions, maxMarks, topicTag } = req.body;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const assignment = data.assignments.find(a => a.id === id);
 
   if (!assignment) {
@@ -98,7 +98,7 @@ router.put('/:id', (req: Request, res: Response) => {
   if (maxMarks) assignment.maxMarks = Number(maxMarks);
   if (topicTag !== undefined) assignment.topicTag = topicTag;
 
-  dbStore.save();
+  getStore(req).save();
 
   const subject = data.subjects.find(s => s.id === assignment.subjectId);
   const deptId = subject ? subject.departmentId : 'dept_cse';
@@ -107,7 +107,7 @@ router.put('/:id', (req: Request, res: Response) => {
   emitToRole('student', 'assignment:updated', assignment);
   emitToRole('faculty', 'assignment:updated', assignment);
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Assignment Updated',
     (req as any).user?.name || 'Faculty',
     'faculty',
@@ -121,7 +121,7 @@ router.put('/:id', (req: Request, res: Response) => {
 // DELETE /api/assignments/:id
 router.delete('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const assignment = data.assignments.find(a => a.id === id);
   if (!assignment) {
     return res.status(404).json({ error: 'Assignment not found.' });
@@ -129,13 +129,13 @@ router.delete('/:id', (req: Request, res: Response) => {
 
   data.assignments = data.assignments.filter(a => a.id !== id);
   data.submissions = data.submissions.filter(s => s.assignmentId !== id);
-  dbStore.save();
+  getStore(req).save();
 
   emitToRole('student', 'assignment:deleted', { id, title: assignment.title });
   emitToRole('faculty', 'assignment:deleted', { id, title: assignment.title });
   emitToAll('assignment:deleted', { id, title: assignment.title });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Assignment Deleted',
     (req as any).user?.name || 'Faculty',
     'faculty',
@@ -148,14 +148,14 @@ router.delete('/:id', (req: Request, res: Response) => {
 
 // GET /api/assignments/submissions/all
 router.get('/submissions/all', (req: Request, res: Response) => {
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   return res.json(data.submissions || []);
 });
 
 // GET /api/assignments/:id/submissions
 router.get('/:id/submissions', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const list = data.submissions.filter(s => s.assignmentId === id);
   return res.json(list);
 });
@@ -163,7 +163,7 @@ router.get('/:id/submissions', (req: Request, res: Response) => {
 // GET /api/assignments/student/:studentId/submissions
 router.get('/student/:studentId/submissions', (req: Request, res: Response) => {
   const { studentId } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const list = data.submissions.filter(s => s.studentId === studentId);
   return res.json(list);
 });
@@ -176,7 +176,7 @@ router.post('/:id/submit', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Student ID and file name are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const assignment = data.assignments.find(a => a.id === id);
   if (!assignment) {
     return res.status(404).json({ error: 'Assignment not found.' });
@@ -204,7 +204,7 @@ router.post('/:id/submit', (req: Request, res: Response) => {
   };
 
   data.submissions.unshift(newSub);
-  dbStore.save();
+  getStore(req).save();
 
   // Notify faculty responsible for this assignment
   emitToFaculty(assignment.facultyId, 'submission:created', {
@@ -219,7 +219,7 @@ router.post('/:id/submit', (req: Request, res: Response) => {
     studentName: newSub.studentName
   });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Assignment Submitted',
     studentName || 'Student',
     'student',
@@ -234,7 +234,7 @@ router.post('/:id/submit', (req: Request, res: Response) => {
 router.put('/submissions/:subId/grade', (req: Request, res: Response) => {
   const { subId } = req.params;
   const { marksAwarded, facultyFeedback } = req.body;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const sub = data.submissions.find(s => s.id === subId);
   if (!sub) {
@@ -248,7 +248,7 @@ router.put('/submissions/:subId/grade', (req: Request, res: Response) => {
   sub.status = 'graded';
   sub.gradedAt = new Date().toISOString().replace('T', ' ').substring(0, 16);
 
-  dbStore.save();
+  getStore(req).save();
 
   // Notify student in real-time
   emitToStudent(sub.studentId, 'submission:evaluated', {
@@ -272,7 +272,7 @@ router.put('/submissions/:subId/grade', (req: Request, res: Response) => {
     feedback: sub.facultyFeedback
   });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Submission Graded',
     (req as any).user?.name || 'Faculty',
     'faculty',
@@ -284,3 +284,4 @@ router.put('/submissions/:subId/grade', (req: Request, res: Response) => {
 });
 
 export default router;
+

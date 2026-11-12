@@ -1,6 +1,6 @@
-import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { dbStore } from '../store/storage';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { emitToAll, emitToRole } from '../socket';
 import { isDbConnected } from '../db/connection';
 import { StudentProfileModel, UserModel, CourseEnrollmentModel, ExamAttemptModel } from '../models/index';
@@ -10,7 +10,7 @@ const router = Router();
 // GET /api/students
 router.get('/', async (req: Request, res: Response) => {
   const { departmentId, semester, section } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   if (isDbConnected()) {
     try {
@@ -60,26 +60,26 @@ router.get('/', async (req: Request, res: Response) => {
 // GET /api/students/user/:userId
 router.get('/user/:userId', (req: Request, res: Response) => {
   const { userId } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const profile = data.students.find(s => s.userId === userId);
   if (!profile) {
     return res.status(404).json({ error: 'Student profile not found for user.' });
   }
-  dbStore.recalculateAttendance(profile.id);
+  getStore(req).recalculateAttendance(profile.id);
   const updatedProfile = data.students.find(s => s.id === profile.id);
   return res.json(updatedProfile);
 });
 
 // GET /api/students/next-roll
 router.get('/next-roll', (req: Request, res: Response) => {
-  const nextRoll = dbStore.getNextRegisterNumber();
+  const nextRoll = getStore(req).getNextRegisterNumber();
   return res.json({ nextRollNumber: nextRoll });
 });
 
 // GET /api/students/:id
 router.get('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const profile = data.students.find(s => s.id === id);
   if (!profile) {
     return res.status(404).json({ error: 'Student profile not found.' });
@@ -94,7 +94,7 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Name, email, department, and semester are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const cleanEmail = email.trim().toLowerCase();
 
   const dept = data.departments.find(d => d.id === departmentId);
@@ -110,7 +110,7 @@ router.post('/', async (req: Request, res: Response) => {
   // Register Number starting with 99
   let cleanRoll = rollNumber ? rollNumber.trim().toUpperCase() : '';
   if (!cleanRoll) {
-    cleanRoll = dbStore.getNextRegisterNumber();
+    cleanRoll = getStore(req).getNextRegisterNumber();
   } else if (!cleanRoll.startsWith('99')) {
     return res.status(400).json({ error: 'Register number must start with 99 (e.g. 990000001).' });
   }
@@ -124,7 +124,7 @@ router.post('/', async (req: Request, res: Response) => {
 
   // Validate section and capacity
   const targetSection = (section || `${dept.code}-A`).trim().toUpperCase();
-  const capacityCheck = dbStore.checkSectionCapacity(departmentId, targetSection);
+  const capacityCheck = getStore(req).checkSectionCapacity(departmentId, targetSection);
   if (!capacityCheck.allowed) {
     return res.status(400).json({ error: capacityCheck.error });
   }
@@ -183,7 +183,7 @@ router.post('/', async (req: Request, res: Response) => {
     });
   });
 
-  dbStore.save();
+  getStore(req).save();
 
   if (isDbConnected()) {
     try {
@@ -199,17 +199,17 @@ router.post('/', async (req: Request, res: Response) => {
       ).catch(() => {});
     } catch {}
   }
-  dbStore.logAudit('Student Registered', (req as any).user?.name || 'Admin', 'admin', `Student ${name}`, `Register No: ${cleanRoll}, Dept: ${dept.code}, Section: ${targetSection}`);
+  getStore(req).logAudit('Student Registered', (req as any).user?.name || 'Admin', 'admin', `Student ${name}`, `Register No: ${cleanRoll}, Dept: ${dept.code}, Section: ${targetSection}`);
 
   const { passwordHash: _, ...userSafe } = user;
 
   emitToAll('student:created', {
     student: profile,
     user: userSafe,
-    sections: dbStore.getData().sections
+    sections: getStore(req).getData().sections
   });
   emitToRole('admin', 'section:updated', {
-    sections: dbStore.getData().sections
+    sections: getStore(req).getData().sections
   });
 
   return res.status(201).json({ user: userSafe, profile });
@@ -219,7 +219,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const updates = req.body;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const idx = data.students.findIndex(s => s.id === id || s.userId === id);
   if (idx === -1) {
@@ -241,14 +241,14 @@ router.put('/:id', async (req: Request, res: Response) => {
   // If section changed, validate capacity of new section
   if (updates.section && updates.section !== data.students[idx].section) {
     const deptId = updates.departmentId || data.students[idx].departmentId;
-    const capacityCheck = dbStore.checkSectionCapacity(deptId, updates.section);
+    const capacityCheck = getStore(req).checkSectionCapacity(deptId, updates.section);
     if (!capacityCheck.allowed) {
       return res.status(400).json({ error: capacityCheck.error });
     }
   }
 
   data.students[idx] = { ...data.students[idx], ...updates };
-  dbStore.save();
+  getStore(req).save();
 
   if (isDbConnected()) {
     try {
@@ -261,7 +261,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 
   emitToAll('student:updated', {
     student: data.students[idx],
-    sections: dbStore.getData().sections
+    sections: getStore(req).getData().sections
   });
 
   return res.json(data.students[idx]);
@@ -270,7 +270,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 // DELETE /api/students/:id
 router.delete('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const idx = data.students.findIndex(s => s.id === id || s.userId === id);
   if (idx === -1) {
@@ -301,8 +301,8 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 
   // Save to disk and database
-  dbStore.recalculateSectionCounts();
-  dbStore.save();
+  getStore(req).recalculateSectionCounts();
+  getStore(req).save();
 
   // Clean from MongoDB if connected
   if (isDbConnected()) {
@@ -319,7 +319,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 
   emitToAll('student:deleted', { id: student.id, userId });
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Student Removed',
     (req as any).user?.name || 'Administrator',
     'admin',
@@ -332,21 +332,21 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
 // GET /api/students/enrollments/all
 router.get('/enrollments/all', (req: Request, res: Response) => {
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   return res.json(data.enrollments || []);
 });
 
 // GET /api/students/results/all
 router.get('/results/all', (req: Request, res: Response) => {
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   return res.json(data.results || []);
 });
 
 // GET /api/students/:id/enrollments
 router.get('/:id/enrollments', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
-  dbStore.recalculateAttendance(id);
+  const data = getStore(req).getData();
+  getStore(req).recalculateAttendance(id);
   const enrollments = data.enrollments.filter(e => e.studentId === id);
   return res.json(enrollments);
 });
@@ -354,7 +354,7 @@ router.get('/:id/enrollments', (req: Request, res: Response) => {
 // GET /api/students/:id/results
 router.get('/:id/results', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const student = data.students.find(s => s.id === id || s.userId === id || s.rollNumber === id);
   const targetId = student ? student.id : id;
   const results = (data.results || []).filter(r => r.studentId === targetId || (student && r.studentId === student.userId));
@@ -362,3 +362,4 @@ router.get('/:id/results', (req: Request, res: Response) => {
 });
 
 export default router;
+

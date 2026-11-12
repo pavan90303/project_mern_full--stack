@@ -1,5 +1,5 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { emitToStudent, emitToCohort, emitToRole, emitToAll } from '../socket';
 import { isMatchingDepartment, isMatchingSection, isStudentEnrolledInSubject } from './onlineExam.routes';
 
@@ -9,7 +9,7 @@ const router = Router();
 router.get('/', (req: Request, res: Response) => {
   const user = (req as any).user;
   const { subjectId, semester, section, facultyId } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   let list = data.internalAssessments || [];
 
@@ -59,7 +59,7 @@ router.post('/', (req: Request, res: Response) => {
     });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const subject = data.subjects.find(s => s.id === subjectId);
   const user = (req as any).user;
 
@@ -83,14 +83,14 @@ router.post('/', (req: Request, res: Response) => {
   };
 
   data.internalAssessments.unshift(newAssessment);
-  dbStore.save();
+  getStore(req).save();
 
   emitToCohort(newAssessment.departmentId, newAssessment.semester, newAssessment.section, 'assessment:created', newAssessment);
   emitToRole('faculty', 'assessment:created', newAssessment);
   emitToRole('student', 'assessment:created', newAssessment);
   emitToAll('assessment:created', newAssessment);
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Assessment Created',
     user?.name || 'Faculty',
     'faculty',
@@ -104,7 +104,7 @@ router.post('/', (req: Request, res: Response) => {
 // GET /api/assessments/:id/marks
 router.get('/:id/marks', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const marks = data.assessmentMarks.filter(m => m.assessmentId === id);
   return res.json(marks);
 });
@@ -117,7 +117,7 @@ router.post('/:id/marks', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Valid marks entries array required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const assessment = data.internalAssessments.find(a => a.id === id);
   data.assessmentMarks = data.assessmentMarks.filter(m => m.assessmentId !== id);
 
@@ -150,7 +150,7 @@ router.post('/:id/marks', (req: Request, res: Response) => {
     });
   });
 
-  dbStore.save();
+  getStore(req).save();
 
   if (assessment) {
     emitToCohort(assessment.departmentId, assessment.semester, assessment.section, 'assessment:evaluated', {
@@ -165,7 +165,7 @@ router.post('/:id/marks', (req: Request, res: Response) => {
   emitToRole('student', 'marks:updated', { assessmentId: id });
   emitToAll('marks:updated', { assessmentId: id });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Marks Submitted',
     (req as any).user?.name || 'Faculty',
     'faculty',
@@ -183,7 +183,7 @@ router.post('/record-subject-marks', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Subject code and valid marks entries array are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const user = (req as any).user;
   const facultyName = user?.name || 'Faculty';
 
@@ -296,14 +296,14 @@ router.post('/record-subject-marks', (req: Request, res: Response) => {
     }
   });
 
-  dbStore.save();
+  getStore(req).save();
 
   emitToRole('student', 'marks:updated', { subjectCode, maxMarks: 100 });
   emitToRole('faculty', 'marks:updated', { subjectCode, maxMarks: 100 });
   emitToRole('admin', 'analytics:updated', { type: 'marks', subjectCode });
   emitToAll('marks:updated', { subjectCode });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Subject Marks Recorded',
     facultyName,
     'faculty',
@@ -315,3 +315,4 @@ router.post('/record-subject-marks', (req: Request, res: Response) => {
 });
 
 export default router;
+

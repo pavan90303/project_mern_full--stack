@@ -1,12 +1,60 @@
-import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { dbStore } from '../store/storage';
-import { generateToken } from '../middleware/auth';
+import { dbStore, tenantManager } from '../store/storage';
+import { generateToken, getStore } from '../middleware/auth';
 import { verifyFirebaseIdToken } from '../firebaseAdmin';
 import { isDbConnected } from '../db/connection';
 import { UserModel } from '../models/index';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
+
+// -------------------------------------------------------------------------
+// Helper: derive the DATA_DIR (same logic as storage.ts)
+// -------------------------------------------------------------------------
+const DATA_DIR = fs.existsSync(path.resolve(process.cwd(), 'server/data'))
+  ? path.resolve(process.cwd(), 'server/data')
+  : fs.existsSync(path.resolve(process.cwd(), 'data'))
+    ? path.resolve(process.cwd(), 'data')
+    : path.resolve(process.cwd(), 'backend/data');
+
+// -------------------------------------------------------------------------
+// Helper: search all per-admin DB files for a given user identifier
+// Returns { store, adminEmail } or null
+// -------------------------------------------------------------------------
+function findTenantStoreForUser(identifier: string): { store: ReturnType<typeof tenantManager.forAdmin>; adminEmail: string } | null {
+  const cleanId = identifier.trim().toLowerCase();
+
+  const matchesInData = (data: any): boolean => {
+    if (data.users?.some((u: any) => u.email?.toLowerCase() === cleanId)) return true;
+    if (data.students?.some((s: any) =>
+      s.rollNumber?.toLowerCase() === cleanId ||
+      s.registrationNumber?.toLowerCase() === cleanId
+    )) return true;
+    if (data.faculty?.some((f: any) => f.employeeId?.toLowerCase() === cleanId)) return true;
+    return false;
+  };
+
+  // Scan all per-admin JSON files
+  try {
+    if (!fs.existsSync(DATA_DIR)) return null;
+    const files = fs.readdirSync(DATA_DIR).filter(
+      (f: string) => f.startsWith('edutrack_db_') && f.endsWith('.json')
+    );
+    for (const file of files) {
+      const adminKey = file.replace('edutrack_db_', '').replace('.json', '');
+      try {
+        const raw = fs.readFileSync(path.join(DATA_DIR, file), 'utf-8');
+        const data = JSON.parse(raw);
+        if (matchesInData(data)) {
+          return { store: tenantManager.forAdmin(adminKey), adminEmail: adminKey };
+        }
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
 
 // POST /api/auth/login
 router.post('/login', (req: Request, res: Response) => {
@@ -16,31 +64,59 @@ router.post('/login', (req: Request, res: Response) => {
   }
 
   const cleanIdentifier = email.trim().toLowerCase();
-  const data = dbStore.getData();
-  
+
+  // -----------------------------------------------------------------------
+  // MULTI-TENANT ROUTING:
+  // For admin logins  â†’ use/create their own private workspace
+  // For faculty/student logins â†’ find the admin workspace they belong to
+  // -----------------------------------------------------------------------
+
+  let activeStore = dbStore; // default fallback
+  let tenantAdminId = ''; // which admin this session belongs to
+
+  if (role === 'admin') {
+    // Admin logs in â†’ their workspace is keyed by their email
+    activeStore = tenantManager.forAdmin(cleanIdentifier);
+    tenantAdminId = cleanIdentifier;
+  } else {
+    // Faculty or student â†’ scan all admin workspaces to find them
+    const found = findTenantStoreForUser(cleanIdentifier);
+    if (found) {
+      activeStore = found.store;
+      tenantAdminId = found.adminEmail;
+    } else {
+      // Not found in any workspace â†’ they must register through an admin first
+      return res.status(401).json({
+        error: 'Account not found. Please contact your institution administrator to register your account.'
+      });
+    }
+  }
+
+  const data = activeStore.getData();
+
   // 1. Direct email lookup
-  let user = data.users.find(u => u.email.toLowerCase() === cleanIdentifier && u.status === 'active');
+  let user = data.users.find((u: any) => u.email.toLowerCase() === cleanIdentifier && u.status === 'active');
 
   // 2. Check student rollNumber or registrationNumber
   if (!user) {
-    const student = data.students.find(s => 
-      s.rollNumber?.toLowerCase() === cleanIdentifier || 
+    const student = data.students.find((s: any) =>
+      s.rollNumber?.toLowerCase() === cleanIdentifier ||
       s.registrationNumber?.toLowerCase() === cleanIdentifier
     );
     if (student) {
-      user = data.users.find(u => u.id === student.userId && u.status === 'active');
+      user = data.users.find((u: any) => u.id === student.userId && u.status === 'active');
     }
   }
 
   // 3. Check faculty employeeId
   if (!user) {
-    const fac = data.faculty.find(f => f.employeeId?.toLowerCase() === cleanIdentifier);
+    const fac = data.faculty.find((f: any) => f.employeeId?.toLowerCase() === cleanIdentifier);
     if (fac) {
-      user = data.users.find(u => u.id === fac.userId && u.status === 'active');
+      user = data.users.find((u: any) => u.id === fac.userId && u.status === 'active');
     }
   }
 
-  // 4. Auto-provision administrator for any email address logging in on Admin tab
+  // 4. Auto-provision NEW administrator for any email address logging in on Admin tab
   if (!user && role === 'admin' && cleanIdentifier.includes('@')) {
     const displayName = cleanIdentifier.split('@')[0];
     const formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
@@ -52,12 +128,13 @@ router.post('/login', (req: Request, res: Response) => {
       password: password || 'admin123',
       passwordHash: passHash,
       role: 'admin',
-      phone: '+91 98765 43210',
+      phone: '',
       status: 'active',
       createdAt: new Date().toISOString()
     };
     data.users.push(user);
-    dbStore.save();
+    activeStore.save();
+    console.log(`[TenantStorage] New admin workspace created for: ${cleanIdentifier}`);
   }
 
   if (!user) {
@@ -69,7 +146,7 @@ router.post('/login', (req: Request, res: Response) => {
     if (role === 'admin' || role === 'faculty' || role === 'student') {
       user.role = role;
       user.status = 'active';
-      dbStore.save();
+      activeStore.save();
     }
   }
 
@@ -99,12 +176,14 @@ router.post('/login', (req: Request, res: Response) => {
     }
   }
 
+  // Embed adminId in JWT so every subsequent API call loads the right workspace
   const token = generateToken({
     id: user.id,
     email: user.email,
     role: user.role,
-    name: user.name
-  });
+    name: user.name,
+    adminId: tenantAdminId  // â† tenant key embedded in token
+  } as any);
 
   res.cookie('token', token, {
     httpOnly: true,
@@ -113,13 +192,13 @@ router.post('/login', (req: Request, res: Response) => {
     maxAge: 7 * 24 * 60 * 60 * 1000
   });
 
-  dbStore.logAudit('User Login', user.name, user.role, 'Session', `Authenticated as ${user.email} (${user.role})`);
+  activeStore.logAudit('User Login', user.name, user.role, 'Session', `Authenticated as ${user.email} (${user.role}) in workspace: ${tenantAdminId}`);
 
   let profile = null;
   if (user.role === 'student') {
-    profile = data.students.find(s => s.userId === user.id) || null;
+    profile = data.students.find((s: any) => s.userId === user.id) || null;
     if (!profile) {
-      const rollNumber = dbStore.getNextRollNumber();
+      const rollNumber = activeStore.getNextRollNumber();
       profile = {
         id: `std_${user.id.replace('usr_', '')}`,
         userId: user.id,
@@ -140,9 +219,9 @@ router.post('/login', (req: Request, res: Response) => {
       };
       data.students.push(profile);
 
-      const deptSubs = data.subjects.filter(s => s.departmentId === 'dept_cse' && s.semester === 6);
-      deptSubs.forEach(sub => {
-        if (!data.enrollments.some(e => e.studentId === profile!.id && (e.subjectId === sub.id || e.subjectCode === sub.code))) {
+      const deptSubs = data.subjects.filter((s: any) => s.departmentId === 'dept_cse' && s.semester === 6);
+      deptSubs.forEach((sub: any) => {
+        if (!data.enrollments.some((e: any) => e.studentId === profile!.id && (e.subjectId === sub.id || e.subjectCode === sub.code))) {
           data.enrollments.push({
             id: `enr_${profile!.id}_${sub.id}`,
             studentId: profile!.id,
@@ -161,10 +240,10 @@ router.post('/login', (req: Request, res: Response) => {
           });
         }
       });
-      dbStore.save();
+      activeStore.save();
     }
   } else if (user.role === 'faculty') {
-    profile = data.faculty.find(f => f.userId === user.id) || null;
+    profile = data.faculty.find((f: any) => f.userId === user.id) || null;
     if (!profile) {
       profile = {
         id: `fac_${user.id.replace('usr_', '')}`,
@@ -182,7 +261,7 @@ router.post('/login', (req: Request, res: Response) => {
         status: 'active'
       };
       data.faculty.push(profile);
-      dbStore.save();
+      activeStore.save();
     }
   }
 
@@ -208,9 +287,10 @@ router.post('/admin/google', async (req: Request, res: Response) => {
     const verifiedUser = await verifyFirebaseIdToken(idToken);
     const verifiedEmail = verifiedUser.email.toLowerCase().trim();
 
-    // 2. Query MongoDB database for user record with this email
-    const data = dbStore.getData();
-    let user = data.users.find(u => u.email.toLowerCase() === verifiedEmail);
+    // 2. Load THIS admin's private workspace (keyed by their verified email)
+    const adminStore = tenantManager.forAdmin(verifiedEmail);
+    const data = adminStore.getData();
+    let user = data.users.find((u: any) => u.email.toLowerCase() === verifiedEmail);
 
     // If MongoDB is connected, query MongoDB collection directly
     if (!user && isDbConnected()) {
@@ -253,14 +333,15 @@ router.post('/admin/google', async (req: Request, res: Response) => {
         createdAt: new Date().toISOString()
       };
       data.users.push(user);
-      dbStore.save();
+      adminStore.save();
+      console.log(`[TenantStorage] New admin workspace (Google) created for: ${verifiedEmail}`);
     } else {
       user.role = 'admin';
       user.status = 'active';
       if (!user.name || user.name === 'Administrator') {
         user.name = displayName;
       }
-      dbStore.save();
+      adminStore.save();
     }
 
     if (isDbConnected()) {
@@ -288,7 +369,7 @@ router.post('/admin/google', async (req: Request, res: Response) => {
 
     // 4. Reject if user is not an Admin (e.g. Faculty or Student)
     if (user.role.toLowerCase() !== 'admin') {
-      dbStore.logAudit(
+      adminStore.logAudit(
         'Admin Access Denied',
         user.name,
         user.role,
@@ -302,7 +383,7 @@ router.post('/admin/google', async (req: Request, res: Response) => {
 
     // 5. Reject if Admin account is inactive
     if (user.status !== 'active') {
-      dbStore.logAudit(
+      adminStore.logAudit(
         'Admin Access Denied',
         user.name,
         'admin',
@@ -314,13 +395,14 @@ router.post('/admin/google', async (req: Request, res: Response) => {
       });
     }
 
-    // 6. Generate existing application JWT
+    // 6. Generate JWT with adminId embedded (admin's own email is their tenant key)
     const token = generateToken({
       id: user.id,
       email: user.email,
       role: 'admin',
-      name: user.name
-    });
+      name: user.name,
+      adminId: verifiedEmail // â† tenant key
+    } as any);
 
     // 7. Establish cookie session
     res.cookie('token', token, {
@@ -331,7 +413,7 @@ router.post('/admin/google', async (req: Request, res: Response) => {
     });
 
     // 8. Log successful session audit trail
-    dbStore.logAudit(
+    adminStore.logAudit(
       'Admin Google Login',
       user.name,
       'admin',
@@ -374,8 +456,23 @@ router.post('/google', async (req: Request, res: Response) => {
     const verifiedEmail = verifiedUser.email.toLowerCase().trim();
     const displayName = verifiedUser.name || (verifiedEmail.split('@')[0] ? verifiedEmail.split('@')[0].charAt(0).toUpperCase() + verifiedEmail.split('@')[0].slice(1) : 'Institutional User');
 
-    const data = dbStore.getData();
-    let user = data.users.find(u => u.email.toLowerCase() === verifiedEmail);
+    // MULTI-TENANT: determine which admin workspace to use
+    let activeStore = dbStore;
+    let tenantAdminEmail = verifiedEmail;
+
+    if (targetRole === 'admin') {
+      activeStore = tenantManager.forAdmin(verifiedEmail);
+      tenantAdminEmail = verifiedEmail;
+    } else {
+      const found = findTenantStoreForUser(verifiedEmail);
+      if (found) {
+        activeStore = found.store;
+        tenantAdminEmail = found.adminEmail;
+      }
+    }
+
+    const data = activeStore.getData();
+    let user = data.users.find((u: any) => u.email.toLowerCase() === verifiedEmail);
 
     if (!user && isDbConnected()) {
       try {
@@ -412,14 +509,14 @@ router.post('/google', async (req: Request, res: Response) => {
           createdAt: new Date().toISOString()
         };
         data.users.push(user);
-        dbStore.save();
+        activeStore.save();
       } else {
         user.role = 'admin';
         user.status = 'active';
         if (!user.name || user.name === 'Administrator') {
           user.name = displayName;
         }
-        dbStore.save();
+        activeStore.save();
       }
     } else {
       // Faculty and Student roles: First-time Google login requires setting a role password
@@ -456,7 +553,7 @@ router.post('/google', async (req: Request, res: Response) => {
             user.status = 'active';
             if (!user.name) user.name = displayName;
           }
-          dbStore.save();
+          activeStore.save();
         } else {
           // First-time login: Prompt user to create their account password for this verified email
           return res.json({
@@ -474,7 +571,7 @@ router.post('/google', async (req: Request, res: Response) => {
           user.role = targetRole;
           user.status = 'active';
           if (!user.name) user.name = displayName;
-          dbStore.save();
+          activeStore.save();
         }
       }
     }
@@ -488,7 +585,7 @@ router.post('/google', async (req: Request, res: Response) => {
     if (user.role === 'student') {
       profile = data.students.find(s => s.userId === user!.id) || null;
       if (!profile) {
-        const rollNumber = dbStore.getNextRollNumber();
+        const rollNumber = activeStore.getNextRollNumber();
         profile = {
           id: `std_${user.id.replace('usr_', '')}`,
           userId: user.id,
@@ -530,7 +627,7 @@ router.post('/google', async (req: Request, res: Response) => {
             });
           }
         });
-        dbStore.save();
+        activeStore.save();
       }
     } else if (user.role === 'faculty') {
       profile = data.faculty.find(f => f.userId === user!.id) || null;
@@ -551,7 +648,7 @@ router.post('/google', async (req: Request, res: Response) => {
           status: 'active'
         };
         data.faculty.push(profile);
-        dbStore.save();
+        activeStore.save();
       }
     }
 
@@ -594,7 +691,7 @@ router.post('/google', async (req: Request, res: Response) => {
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
-    dbStore.logAudit(
+    activeStore.logAudit(
       'Google Login',
       user.name,
       user.role,
@@ -638,8 +735,22 @@ router.post('/google/setup-password', async (req: Request, res: Response) => {
   const targetRole = (role === 'student' ? 'student' : role === 'admin' ? 'admin' : 'faculty') as 'admin' | 'faculty' | 'student';
   const displayName = name || (cleanEmail.split('@')[0] ? cleanEmail.split('@')[0].charAt(0).toUpperCase() + cleanEmail.split('@')[0].slice(1) : 'Institutional User');
 
-  const data = dbStore.getData();
-  let user = data.users.find(u => u.email.toLowerCase() === cleanEmail);
+  // MULTI-TENANT: find the admin workspace that registered this user
+  let activeStore = dbStore;
+  let tenantAdminEmail = cleanEmail;
+  if (targetRole === 'admin') {
+    activeStore = tenantManager.forAdmin(cleanEmail);
+    tenantAdminEmail = cleanEmail;
+  } else {
+    const found = findTenantStoreForUser(cleanEmail);
+    if (found) {
+      activeStore = found.store;
+      tenantAdminEmail = found.adminEmail;
+    }
+  }
+
+  const data = activeStore.getData();
+  let user = data.users.find((u: any) => u.email.toLowerCase() === cleanEmail);
   const passHash = bcrypt.hashSync(cleanPassword, 10);
 
   if (!user) {
@@ -671,7 +782,7 @@ router.post('/google/setup-password', async (req: Request, res: Response) => {
   if (targetRole === 'student') {
     profile = data.students.find(s => s.userId === user!.id) || null;
     if (!profile) {
-      const rollNumber = dbStore.getNextRollNumber();
+      const rollNumber = activeStore.getNextRollNumber();
       profile = {
         id: `std_${user.id.replace('usr_', '')}`,
         userId: user.id,
@@ -736,7 +847,7 @@ router.post('/google/setup-password', async (req: Request, res: Response) => {
     }
   }
 
-  dbStore.save();
+  activeStore.save();
 
   if (isDbConnected()) {
     try {
@@ -763,7 +874,7 @@ router.post('/google/setup-password', async (req: Request, res: Response) => {
     }
   }
 
-  dbStore.logAudit(
+  activeStore.logAudit(
     'Password Setup',
     user.name,
     user.role,
@@ -789,7 +900,7 @@ router.post('/google/setup-password', async (req: Request, res: Response) => {
 router.post('/logout', (req: Request, res: Response) => {
   const user = (req as any).user;
   if (user) {
-    dbStore.logAudit('User Logout', user.name, user.role, 'Session', 'User logged out');
+    getStore(req).logAudit('User Logout', user.name, user.role, 'Session', 'User logged out');
   }
   res.clearCookie('token');
   return res.json({ message: 'Successfully logged out' });
@@ -802,7 +913,7 @@ router.get('/me', (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const user = data.users.find(u => u.id === reqUser.id);
   if (!user) {
     return res.status(404).json({ error: 'User record not found' });
@@ -812,7 +923,7 @@ router.get('/me', (req: Request, res: Response) => {
   if (user.role === 'student') {
     profile = data.students.find(s => s.userId === user.id) || null;
     if (!profile) {
-      const rollNumber = dbStore.getNextRollNumber();
+      const rollNumber = getStore(req).getNextRollNumber();
       profile = {
         id: `std_${user.id.replace('usr_', '')}`,
         userId: user.id,
@@ -854,7 +965,7 @@ router.get('/me', (req: Request, res: Response) => {
           });
         }
       });
-      dbStore.save();
+      getStore(req).save();
     }
   } else if (user.role === 'faculty') {
     profile = data.faculty.find(f => f.userId === user.id) || null;
@@ -875,7 +986,7 @@ router.get('/me', (req: Request, res: Response) => {
         status: 'active'
       };
       data.faculty.push(profile);
-      dbStore.save();
+      getStore(req).save();
     }
   }
 
@@ -893,7 +1004,7 @@ router.post('/register', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Name, email, and role are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const cleanEmail = email.trim().toLowerCase();
   const existing = data.users.find(u => u.email.toLowerCase() === cleanEmail);
   if (existing) {
@@ -916,7 +1027,7 @@ router.post('/register', (req: Request, res: Response) => {
 
   let newProfile: any = null;
   if (role === 'student') {
-    const rollNumber = dbStore.getNextRollNumber();
+    const rollNumber = getStore(req).getNextRollNumber();
     newProfile = {
       id: `std_${newUser.id.replace('usr_', '')}`,
       userId: newUser.id,
@@ -975,8 +1086,8 @@ router.post('/register', (req: Request, res: Response) => {
     data.faculty.push(newProfile);
   }
 
-  dbStore.save();
-  dbStore.logAudit('User Registered', (req as any).user?.name || 'System', (req as any).user?.role || 'admin', `User ${newUser.email}`, `Created ${role} account`);
+  getStore(req).save();
+  getStore(req).logAudit('User Registered', (req as any).user?.name || 'System', (req as any).user?.role || 'admin', `User ${newUser.email}`, `Created ${role} account`);
 
   const { passwordHash: _, ...userSafe } = newUser;
   return res.status(201).json({ user: userSafe, profile: newProfile });
@@ -984,7 +1095,7 @@ router.post('/register', (req: Request, res: Response) => {
 
 // GET /api/auth/users
 router.get('/users', async (req: Request, res: Response) => {
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   if (isDbConnected()) {
     try {
       const dbUsers = await UserModel.find({}).lean();
@@ -1011,3 +1122,4 @@ router.get('/users', async (req: Request, res: Response) => {
 });
 
 export default router;
+

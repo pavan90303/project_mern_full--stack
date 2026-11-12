@@ -1,5 +1,5 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { emitToCohort, emitToRole, emitToAll } from '../socket';
 
 const router = Router();
@@ -7,7 +7,7 @@ const router = Router();
 // GET /api/materials
 router.get('/', (req: Request, res: Response) => {
   const { subjectId, semester, departmentId, section } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   let list = data.studyMaterials;
   if (subjectId) {
@@ -34,7 +34,7 @@ router.post('/', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Subject and Title are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const subject = data.subjects.find(s => s.id === subjectId || s.code === subjectId);
   const user = (req as any).user;
 
@@ -60,7 +60,7 @@ router.post('/', (req: Request, res: Response) => {
   };
 
   data.studyMaterials.unshift(newMaterial);
-  dbStore.save();
+  getStore(req).save();
 
   const deptId = subject ? subject.departmentId : 'dept_cse';
   emitToCohort(deptId, newMaterial.semester, newMaterial.section, 'material:created', newMaterial);
@@ -68,7 +68,7 @@ router.post('/', (req: Request, res: Response) => {
   emitToRole('faculty', 'material:created', newMaterial);
   emitToAll('material:created', newMaterial);
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Study Material Uploaded',
     user?.name || 'Faculty',
     'faculty',
@@ -82,20 +82,20 @@ router.post('/', (req: Request, res: Response) => {
 // DELETE /api/materials/:id
 router.delete('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const material = data.studyMaterials.find(m => m.id === id);
   if (!material) {
     return res.status(404).json({ error: 'Study material not found.' });
   }
 
   data.studyMaterials = data.studyMaterials.filter(m => m.id !== id);
-  dbStore.save();
+  getStore(req).save();
 
   emitToRole('student', 'material:deleted', { id, title: material.title });
   emitToRole('faculty', 'material:deleted', { id, title: material.title });
   emitToAll('material:deleted', { id, title: material.title });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Study Material Removed',
     (req as any).user?.name || 'Faculty',
     'faculty',
@@ -109,15 +109,16 @@ router.delete('/:id', (req: Request, res: Response) => {
 // POST /api/materials/:id/download
 router.post('/:id/download', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const material = data.studyMaterials.find(m => m.id === id);
   if (!material) {
     return res.status(404).json({ error: 'Study material not found.' });
   }
 
   material.downloadCount = (material.downloadCount || 0) + 1;
-  dbStore.save();
+  getStore(req).save();
   return res.json({ downloadCount: material.downloadCount });
 });
 
 export default router;
+

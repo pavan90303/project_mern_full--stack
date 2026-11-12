@@ -1,5 +1,5 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { emitToRole, emitToAll } from '../socket';
 
 const router = Router();
@@ -7,9 +7,9 @@ const router = Router();
 // GET /api/sections
 router.get('/', (req: Request, res: Response) => {
   const { departmentId, status } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
-  dbStore.recalculateSectionCounts();
+  getStore(req).recalculateSectionCounts();
   let list = data.sections || [];
 
   if (departmentId && departmentId !== 'all') {
@@ -25,7 +25,7 @@ router.get('/', (req: Request, res: Response) => {
 // GET /api/sections/:id
 router.get('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const section = (data.sections || []).find(s => s.id === id);
   if (!section) {
     return res.status(404).json({ error: 'Section not found.' });
@@ -40,7 +40,7 @@ router.post('/', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Section name and department are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const dept = data.departments.find(d => d.id === departmentId);
   if (!dept) {
     return res.status(404).json({ error: 'Department not found.' });
@@ -68,13 +68,13 @@ router.post('/', (req: Request, res: Response) => {
 
   if (!data.sections) data.sections = [];
   data.sections.push(newSection);
-  dbStore.save();
+  getStore(req).save();
 
   emitToAll('academic:updated', { type: 'section', section: newSection, sections: data.sections });
   emitToAll('section:created', { section: newSection, sections: data.sections });
   emitToAll('section:updated', { sections: data.sections });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Section Created',
     (req as any).user?.name || 'Admin',
     'admin',
@@ -89,7 +89,7 @@ router.post('/', (req: Request, res: Response) => {
 router.put('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const { name, capacity, status } = req.body;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const idx = (data.sections || []).findIndex(s => s.id === id);
   if (idx === -1) {
@@ -124,11 +124,11 @@ router.put('/:id', (req: Request, res: Response) => {
     currentSec.status = status;
   }
 
-  dbStore.save();
+  getStore(req).save();
   emitToAll('academic:updated', { type: 'section', section: currentSec, sections: data.sections });
   emitToAll('section:updated', { section: currentSec, sections: data.sections });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Section Updated',
     (req as any).user?.name || 'Admin',
     'admin',
@@ -142,7 +142,7 @@ router.put('/:id', (req: Request, res: Response) => {
 // DELETE /api/sections/:id
 router.delete('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const sec = (data.sections || []).find(s => s.id === id);
   if (!sec) {
@@ -156,12 +156,12 @@ router.delete('/:id', (req: Request, res: Response) => {
   }
 
   data.sections = data.sections.filter(s => s.id !== id);
-  dbStore.save();
+  getStore(req).save();
 
   emitToAll('academic:updated', { type: 'section_deleted', id, sections: data.sections });
   emitToAll('section:updated', { deletedId: id, sections: data.sections });
 
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Section Deleted',
     (req as any).user?.name || 'Admin',
     'admin',
@@ -173,3 +173,4 @@ router.delete('/:id', (req: Request, res: Response) => {
 });
 
 export default router;
+

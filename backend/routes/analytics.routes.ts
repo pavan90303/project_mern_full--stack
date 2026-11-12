@@ -1,11 +1,11 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 
 const router = Router();
 
 // GET /api/analytics/institution
 router.get('/institution', (req: Request, res: Response) => {
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const totalStudents = data.students.length;
   const totalFaculty = data.faculty.length;
@@ -52,7 +52,7 @@ router.get('/institution', (req: Request, res: Response) => {
 // GET /api/analytics/weak-concepts
 router.get('/weak-concepts', (req: Request, res: Response) => {
   const { departmentId, semester } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   // Aggregate concept performance from internal assessments
   const conceptsMap = new Map<string, {
@@ -114,14 +114,15 @@ router.get('/weak-concepts', (req: Request, res: Response) => {
 
 // GET /api/analytics/audit-logs
 router.get('/audit-logs', (req: Request, res: Response) => {
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   return res.json(data.auditLogs);
 });
 
 // POST /api/analytics/reset
 router.post('/reset', (req: Request, res: Response) => {
-  dbStore.resetToDefault();
+  getStore(req).resetToDefault();
   return res.json({ message: 'Database reset to default seed state' });
 });
 
 export default router;
+

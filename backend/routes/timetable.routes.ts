@@ -1,5 +1,5 @@
-import { Router, Request, Response } from 'express';
-import { dbStore } from '../store/storage';
+﻿import { Router, Request, Response } from 'express';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { isDbConnected } from '../db/connection';
 import { TimetableEntryModel, ExamScheduleModel } from '../models';
 import { isMatchingDepartment, isMatchingSection } from './onlineExam.routes';
@@ -140,7 +140,7 @@ function checkTimetableOverlap(
 // GET /api/timetable/class
 router.get('/class', async (req: Request, res: Response) => {
   const { departmentId, semester, section, facultyId } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   if (isDbConnected()) {
     try {
@@ -171,7 +171,7 @@ router.get('/class', async (req: Request, res: Response) => {
 // POST /api/timetable/class/validate
 router.post('/class/validate', (req: Request, res: Response) => {
   const candidate = req.body;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const conflict = checkTimetableOverlap(candidate, data.classTimetable, data.subjects);
   return res.json(conflict);
 });
@@ -183,7 +183,7 @@ router.post('/class', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'All timetable slot details are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const subject = data.subjects.find(s => s.id === subjectId || s.code === subjectId || (subjectCode && s.code === subjectCode));
   const dept = data.departments.find(d => d.id === departmentId || isMatchingDepartment(d.id, departmentId) || (departmentName && d.name.toLowerCase() === departmentName.toLowerCase()));
   const facultyUser = data.users.find(u => u.id === facultyId);
@@ -230,7 +230,7 @@ router.post('/class', async (req: Request, res: Response) => {
   };
 
   data.classTimetable.push(newEntry);
-  dbStore.save();
+  getStore(req).save();
 
   if (isDbConnected()) {
     try {
@@ -249,7 +249,7 @@ router.post('/class', async (req: Request, res: Response) => {
   emitToRole('student', 'timetable:updated', { type: 'class', entry: newEntry });
   emitToRole('faculty', 'timetable:updated', { type: 'class', entry: newEntry });
 
-  dbStore.logAudit('Timetable Entry Created', (req as any).user?.name || 'Admin', 'admin', `Room ${room}`, `Scheduled ${newEntry.subjectCode} on ${dayOfWeek} (${startTime}-${endTime})`);
+  getStore(req).logAudit('Timetable Entry Created', (req as any).user?.name || 'Admin', 'admin', `Room ${room}`, `Scheduled ${newEntry.subjectCode} on ${dayOfWeek} (${startTime}-${endTime})`);
 
   return res.status(201).json(newEntry);
 });
@@ -257,10 +257,10 @@ router.post('/class', async (req: Request, res: Response) => {
 // DELETE /api/timetable/class/:id
 router.delete('/class/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const entry = data.classTimetable.find(t => t.id === id);
   data.classTimetable = data.classTimetable.filter(t => t.id !== id);
-  dbStore.save();
+  getStore(req).save();
 
   if (isDbConnected()) {
     try {
@@ -277,14 +277,14 @@ router.delete('/class/:id', async (req: Request, res: Response) => {
   emitToRole('student', 'timetable:updated', { type: 'class', deletedId: id });
   emitToRole('faculty', 'timetable:updated', { type: 'class', deletedId: id });
 
-  dbStore.logAudit('Timetable Entry Removed', (req as any).user?.name || 'Admin', 'admin', `Slot ${id}`, 'Deleted class period');
+  getStore(req).logAudit('Timetable Entry Removed', (req as any).user?.name || 'Admin', 'admin', `Slot ${id}`, 'Deleted class period');
   return res.json({ message: 'Timetable entry removed successfully' });
 });
 
 // GET /api/timetable/exams
 router.get('/exams', async (req: Request, res: Response) => {
   const { departmentId, semester, section, publishedOnly } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   let list = data.examSchedules || [];
   if (publishedOnly === 'true') {
@@ -310,7 +310,7 @@ router.post('/exams', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Date, timeslot, subject, and room are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const subject = data.subjects.find(s => s.id === subjectId || (subjectCode && s.code === subjectCode));
   const dept = data.departments.find(d => d.id === departmentId || (departmentName && d.name.toLowerCase() === departmentName.toLowerCase()) || isMatchingDepartment(d.id, departmentId));
 
@@ -350,7 +350,7 @@ router.post('/exams', async (req: Request, res: Response) => {
   };
 
   data.examSchedules.push(newExam);
-  dbStore.save();
+  getStore(req).save();
 
   if (isDbConnected()) {
     try {
@@ -366,7 +366,7 @@ router.post('/exams', async (req: Request, res: Response) => {
   emitToRole('student', 'exam_timetable:updated', newExam);
   emitToRole('faculty', 'exam_timetable:updated', newExam);
 
-  dbStore.logAudit('Exam Scheduled', (req as any).user?.name || 'Admin', 'admin', `Exam ${newExam.subjectCode}`, `Scheduled on ${examDate} at ${room}`);
+  getStore(req).logAudit('Exam Scheduled', (req as any).user?.name || 'Admin', 'admin', `Exam ${newExam.subjectCode}`, `Scheduled on ${examDate} at ${room}`);
 
   return res.status(201).json(newExam);
 });
@@ -374,10 +374,10 @@ router.post('/exams', async (req: Request, res: Response) => {
 // DELETE /api/timetable/exams/:id
 router.delete('/exams/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const exam = data.examSchedules.find(e => e.id === id);
   data.examSchedules = data.examSchedules.filter(e => e.id !== id);
-  dbStore.save();
+  getStore(req).save();
 
   if (isDbConnected()) {
     try {
@@ -391,21 +391,21 @@ router.delete('/exams/:id', async (req: Request, res: Response) => {
   emitToRole('student', 'exam_timetable:deleted', { id });
   emitToRole('faculty', 'exam_timetable:deleted', { id });
 
-  dbStore.logAudit('Exam Schedule Deleted', (req as any).user?.name || 'Admin', 'admin', `Exam ID ${id}`, 'Deleted exam schedule');
+  getStore(req).logAudit('Exam Schedule Deleted', (req as any).user?.name || 'Admin', 'admin', `Exam ID ${id}`, 'Deleted exam schedule');
   return res.json({ message: 'Exam schedule deleted successfully' });
 });
 
 // PUT /api/timetable/exams/:id/publish
 router.put('/exams/:id/publish', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const exam = data.examSchedules.find(e => e.id === id);
   if (!exam) {
     return res.status(404).json({ error: 'Exam schedule not found.' });
   }
 
   exam.isPublished = !exam.isPublished;
-  dbStore.save();
+  getStore(req).save();
 
   if (isDbConnected()) {
     try {
@@ -420,9 +420,10 @@ router.put('/exams/:id/publish', async (req: Request, res: Response) => {
   emitToRole('student', 'exam_timetable:updated', exam);
   emitToRole('faculty', 'exam_timetable:updated', exam);
 
-  dbStore.logAudit('Exam Schedule Publish Toggled', (req as any).user?.name || 'Admin', 'admin', `Exam ${exam.subjectCode}`, `Set published to ${exam.isPublished}`);
+  getStore(req).logAudit('Exam Schedule Publish Toggled', (req as any).user?.name || 'Admin', 'admin', `Exam ${exam.subjectCode}`, `Set published to ${exam.isPublished}`);
 
   return res.json(exam);
 });
 
 export default router;
+

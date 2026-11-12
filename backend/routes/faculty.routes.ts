@@ -1,6 +1,6 @@
-import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { dbStore } from '../store/storage';
+import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
 import { emitToAll } from '../socket';
 import { isDbConnected } from '../db/connection';
 import { FacultyProfileModel, UserModel, TeachingAssignmentModel } from '../models/index';
@@ -10,7 +10,7 @@ const router = Router();
 // GET /api/faculty
 router.get('/', async (req: Request, res: Response) => {
   const { departmentId } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   if (isDbConnected()) {
     try {
@@ -54,7 +54,7 @@ router.get('/', async (req: Request, res: Response) => {
 // GET /api/faculty/user/:userId
 router.get('/user/:userId', (req: Request, res: Response) => {
   const { userId } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const profile = data.faculty.find(f => f.userId === userId);
   if (!profile) {
     return res.status(404).json({ error: 'Faculty profile not found for user.' });
@@ -65,7 +65,7 @@ router.get('/user/:userId', (req: Request, res: Response) => {
 // GET /api/faculty/assignments
 router.get('/assignments', (req: Request, res: Response) => {
   const { facultyId, departmentId, section } = req.query;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   let list = data.teachingAssignments || [];
   if (facultyId) {
     list = list.filter(ta => ta.facultyId === facultyId || ta.facultyUserId === facultyId);
@@ -82,11 +82,11 @@ router.get('/assignments', (req: Request, res: Response) => {
 // DELETE /api/faculty/assignments/:assignmentId
 router.delete('/assignments/:assignmentId', (req: Request, res: Response) => {
   const { assignmentId } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const initialLen = (data.teachingAssignments || []).length;
   data.teachingAssignments = (data.teachingAssignments || []).filter(ta => ta.id !== assignmentId);
   if (data.teachingAssignments.length < initialLen) {
-    dbStore.save();
+    getStore(req).save();
     return res.json({ message: 'Teaching assignment removed successfully.' });
   }
   return res.status(404).json({ error: 'Assignment not found.' });
@@ -95,7 +95,7 @@ router.delete('/assignments/:assignmentId', (req: Request, res: Response) => {
 // GET /api/faculty/:id
 router.get('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const profile = data.faculty.find(f => f.id === id);
   if (!profile) {
     return res.status(404).json({ error: 'Faculty profile not found.' });
@@ -127,7 +127,7 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Name, email, employee ID (FAC...), designation, and department are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const cleanEmail = email.trim().toLowerCase();
   const cleanEmpId = employeeId.trim().toUpperCase();
 
@@ -253,7 +253,7 @@ router.post('/', async (req: Request, res: Response) => {
     }
   });
 
-  dbStore.save();
+  getStore(req).save();
 
   if (isDbConnected()) {
     try {
@@ -270,7 +270,7 @@ router.post('/', async (req: Request, res: Response) => {
     } catch {}
   }
 
-  dbStore.logAudit('Faculty Registered', (req as any).user?.name || 'Admin', 'admin', `Faculty ${name}`, `ID: ${cleanEmpId}, Dept: ${dept.code}, Sections: ${profile.assignedSections.join(', ')}`);
+  getStore(req).logAudit('Faculty Registered', (req as any).user?.name || 'Admin', 'admin', `Faculty ${name}`, `ID: ${cleanEmpId}, Dept: ${dept.code}, Sections: ${profile.assignedSections.join(', ')}`);
 
   const { passwordHash: _, ...userSafe } = user;
 
@@ -283,7 +283,7 @@ router.post('/', async (req: Request, res: Response) => {
 // GET /api/faculty/:id/teaching-assignments
 router.get('/:id/teaching-assignments', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const assignments = (data.teachingAssignments || []).filter(
     ta => ta.facultyId === id || ta.facultyUserId === id
   );
@@ -298,7 +298,7 @@ router.post('/:id/allocate', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Subject and Section are required.' });
   }
 
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
   const fac = data.faculty.find(f => f.id === id || f.userId === id);
   if (!fac) {
     return res.status(404).json({ error: 'Faculty not found.' });
@@ -348,8 +348,8 @@ router.post('/:id/allocate', (req: Request, res: Response) => {
     data.teachingAssignments.push(newTA);
   }
 
-  dbStore.save();
-  dbStore.logAudit('Faculty Allocation Updated', (req as any).user?.name || 'Admin', 'admin', `Faculty ${facultyUser?.name}`, `Allocated ${sub.code} for section ${section}`);
+  getStore(req).save();
+  getStore(req).logAudit('Faculty Allocation Updated', (req as any).user?.name || 'Admin', 'admin', `Faculty ${facultyUser?.name}`, `Allocated ${sub.code} for section ${section}`);
 
   emitToAll('faculty:updated', { faculty: fac, assignment: newTA });
   emitToAll('academic:updated', { type: 'allocation' });
@@ -361,7 +361,7 @@ router.post('/:id/allocate', (req: Request, res: Response) => {
 router.put('/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const updates = req.body;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const idx = data.faculty.findIndex(f => f.id === id);
   if (idx === -1) {
@@ -387,7 +387,7 @@ router.put('/:id', (req: Request, res: Response) => {
   }
 
   data.faculty[idx] = { ...data.faculty[idx], ...updates };
-  dbStore.save();
+  getStore(req).save();
 
   if (isDbConnected()) {
     try {
@@ -407,7 +407,7 @@ router.put('/:id', (req: Request, res: Response) => {
 // DELETE /api/faculty/:id
 router.delete('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = dbStore.getData();
+  const data = getStore(req).getData();
 
   const idx = data.faculty.findIndex(f => f.id === id || f.userId === id);
   if (idx === -1) {
@@ -441,7 +441,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
   });
 
-  dbStore.save();
+  getStore(req).save();
 
   // Clean from MongoDB if connected
   if (isDbConnected()) {
@@ -457,7 +457,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 
   emitToAll('faculty:deleted', { id: faculty.id, userId });
-  dbStore.logAudit(
+  getStore(req).logAudit(
     'Faculty Removed',
     (req as any).user?.name || 'Administrator',
     'admin',
@@ -469,3 +469,4 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 export default router;
+
