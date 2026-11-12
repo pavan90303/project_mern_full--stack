@@ -1,6 +1,7 @@
 ﻿import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
+import { tenantManager, dbStore } from '../store/storage';
+import { getStore } from '../middleware/auth';
 import { emitToAll } from '../socket';
 import { isDbConnected } from '../db/connection';
 import { FacultyProfileModel, UserModel, TeachingAssignmentModel } from '../models/index';
@@ -469,4 +470,5 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 export default router;
+
 

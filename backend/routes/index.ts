@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response } from 'express';
 import authRoutes from './auth.routes';
 import departmentRoutes from './department.routes';
 import subjectRoutes from './subject.routes';
@@ -131,3 +131,4 @@ apiRouter.use('/analytics', analyticsRoutes);
 apiRouter.use('/online-exams', onlineExamRoutes);
 
 export default apiRouter;
+

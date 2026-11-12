@@ -1,5 +1,6 @@
 ﻿import { Router, Request, Response } from 'express';
-import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
+import { tenantManager, dbStore } from '../store/storage';
+import { getStore } from '../middleware/auth';
 import { isDbConnected } from '../db/connection';
 import { TimetableEntryModel, ExamScheduleModel } from '../models';
 import { isMatchingDepartment, isMatchingSection } from './onlineExam.routes';
@@ -426,4 +427,5 @@ router.put('/exams/:id/publish', async (req: Request, res: Response) => {
 });
 
 export default router;
+
 

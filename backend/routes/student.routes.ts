@@ -1,6 +1,7 @@
 ﻿import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { getStore(req), tenantManager } from '../store/storage';\nimport { getStore } from '../middleware/auth';
+import { tenantManager, dbStore } from '../store/storage';
+import { getStore } from '../middleware/auth';
 import { emitToAll, emitToRole } from '../socket';
 import { isDbConnected } from '../db/connection';
 import { StudentProfileModel, UserModel, CourseEnrollmentModel, ExamAttemptModel } from '../models/index';
@@ -362,4 +363,5 @@ router.get('/:id/results', (req: Request, res: Response) => {
 });
 
 export default router;
+
 
