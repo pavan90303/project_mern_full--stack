@@ -455,6 +455,7 @@ router.post('/google', async (req: Request, res: Response) => {
     const verifiedUser = await verifyFirebaseIdToken(idToken);
     const verifiedEmail = verifiedUser.email.toLowerCase().trim();
     const displayName = verifiedUser.name || (verifiedEmail.split('@')[0] ? verifiedEmail.split('@')[0].charAt(0).toUpperCase() + verifiedEmail.split('@')[0].slice(1) : 'Institutional User');
+    const targetRole = (role === 'faculty' ? 'faculty' : role === 'student' ? 'student' : 'admin') as 'admin' | 'faculty' | 'student';
 
     // MULTI-TENANT: determine which admin workspace to use
     let activeStore = dbStore;
@@ -493,8 +494,6 @@ router.post('/google', async (req: Request, res: Response) => {
         console.warn('[Google Auth] MongoDB query warning:', err.message);
       }
     }
-
-    const targetRole = (role === 'faculty' ? 'faculty' : role === 'student' ? 'student' : 'admin') as 'admin' | 'faculty' | 'student';
 
     // Administrator role does not require a secondary password
     if (targetRole === 'admin') {
@@ -681,8 +680,9 @@ router.post('/google', async (req: Request, res: Response) => {
       id: user.id,
       email: user.email,
       role: user.role,
-      name: user.name
-    });
+      name: user.name,
+      adminId: tenantAdminEmail
+    } as any);
 
     res.cookie('token', token, {
       httpOnly: true,
@@ -1096,27 +1096,6 @@ router.post('/register', (req: Request, res: Response) => {
 // GET /api/auth/users
 router.get('/users', async (req: Request, res: Response) => {
   const data = getStore(req).getData();
-  if (isDbConnected()) {
-    try {
-      const dbUsers = await UserModel.find({}).lean();
-      if (dbUsers && dbUsers.length > 0) {
-        dbUsers.forEach((du: any) => {
-          const idx = data.users.findIndex(u => u.id === du.id || u.email === du.email);
-          const safeUser = {
-            id: du.id || du._id?.toString(),
-            name: du.name,
-            email: du.email,
-            role: du.role,
-            status: du.status,
-            phone: du.phone,
-            createdAt: du.createdAt
-          };
-          if (idx !== -1) data.users[idx] = { ...data.users[idx], ...safeUser };
-          else data.users.push(safeUser as any);
-        });
-      }
-    } catch {}
-  }
   const safeUsers = data.users.map(({ passwordHash, ...u }) => u);
   return res.json(safeUsers);
 });

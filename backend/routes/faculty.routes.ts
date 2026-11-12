@@ -13,27 +13,6 @@ router.get('/', async (req: Request, res: Response) => {
   const { departmentId } = req.query;
   const data = getStore(req).getData();
 
-  if (isDbConnected()) {
-    try {
-      const dbFaculty = await FacultyProfileModel.find({}).lean();
-      const dbUsers = await UserModel.find({ role: 'faculty' }).lean();
-      if (dbFaculty && dbFaculty.length > 0) {
-        dbFaculty.forEach((df: any) => {
-          const idx = data.faculty.findIndex(f => f.id === df.id || f.employeeId === df.employeeId);
-          if (idx !== -1) data.faculty[idx] = { ...data.faculty[idx], ...df };
-          else data.faculty.push(df);
-        });
-      }
-      if (dbUsers && dbUsers.length > 0) {
-        dbUsers.forEach((du: any) => {
-          const idx = data.users.findIndex(u => u.id === du.id || u.email === du.email);
-          if (idx !== -1) data.users[idx] = { ...data.users[idx], ...du };
-          else data.users.push(du);
-        });
-      }
-    } catch {}
-  }
-
   let list = data.faculty;
   if (departmentId && departmentId !== 'all') {
     list = list.filter(f => f.departmentId === departmentId);

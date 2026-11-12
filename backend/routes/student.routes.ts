@@ -13,27 +13,6 @@ router.get('/', async (req: Request, res: Response) => {
   const { departmentId, semester, section } = req.query;
   const data = getStore(req).getData();
 
-  if (isDbConnected()) {
-    try {
-      const dbStudents = await StudentProfileModel.find({}).lean();
-      const dbUsers = await UserModel.find({ role: 'student' }).lean();
-      if (dbStudents && dbStudents.length > 0) {
-        dbStudents.forEach((ds: any) => {
-          const idx = data.students.findIndex(s => s.id === ds.id || s.rollNumber === ds.rollNumber);
-          if (idx !== -1) data.students[idx] = { ...data.students[idx], ...ds };
-          else data.students.push(ds);
-        });
-      }
-      if (dbUsers && dbUsers.length > 0) {
-        dbUsers.forEach((du: any) => {
-          const idx = data.users.findIndex(u => u.id === du.id || u.email === du.email);
-          if (idx !== -1) data.users[idx] = { ...data.users[idx], ...du };
-          else data.users.push(du);
-        });
-      }
-    } catch {}
-  }
-
   let list = data.students;
   if (departmentId && departmentId !== 'all') {
     list = list.filter(s => s.departmentId === departmentId);

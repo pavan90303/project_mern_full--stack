@@ -860,10 +860,12 @@ class StorageEngine {
           ];
         }
         if (!parsed.teachingAssignments) {
-          parsed.teachingAssignments = [
-            { id: 'ta_01', facultyId: 'fac_01', facultyUserId: 'usr_fac_01', facultyName: 'Prof. Marcus Vance', departmentId: 'dept_cse', subjectId: 'sub_cs401', subjectCode: 'CS401', subjectName: 'Distributed Systems & Cloud Computing', semester: 6, section: 'CSE-A', academicYear: '2026-2027', status: 'active' },
-            { id: 'ta_02', facultyId: 'fac_01', facultyUserId: 'usr_fac_01', facultyName: 'Prof. Marcus Vance', departmentId: 'dept_cse', subjectId: 'sub_cs401', subjectCode: 'CS401', subjectName: 'Distributed Systems & Cloud Computing', semester: 6, section: 'CSE-B', academicYear: '2026-2027', status: 'active' }
-          ];
+          parsed.teachingAssignments = isDefaultSeedAdmin(this.adminId)
+            ? [
+                { id: 'ta_01', facultyId: 'fac_01', facultyUserId: 'usr_fac_01', facultyName: 'Prof. Marcus Vance', departmentId: 'dept_cse', subjectId: 'sub_cs401', subjectCode: 'CS401', subjectName: 'Distributed Systems & Cloud Computing', semester: 6, section: 'CSE-A', academicYear: '2026-2027', status: 'active' },
+                { id: 'ta_02', facultyId: 'fac_01', facultyUserId: 'usr_fac_01', facultyName: 'Prof. Marcus Vance', departmentId: 'dept_cse', subjectId: 'sub_cs401', subjectCode: 'CS401', subjectName: 'Distributed Systems & Cloud Computing', semester: 6, section: 'CSE-B', academicYear: '2026-2027', status: 'active' }
+              ]
+            : [];
         }
 
         // Migrate any non-99 student roll numbers
@@ -883,95 +885,42 @@ class StorageEngine {
           if (!s.academicYear) s.academicYear = '2026-2027';
         }
 
-        // Auto-provision StudentProfile and course enrollments for all student accounts
+        // Collections safety checks
         if (!parsed.students) parsed.students = [];
         if (!parsed.enrollments) parsed.enrollments = [];
         if (!parsed.onlineExams) parsed.onlineExams = [];
         if (!parsed.examAttempts) parsed.examAttempts = [];
+        if (!parsed.faculty) parsed.faculty = [];
+        if (!parsed.subjects) parsed.subjects = [];
+        if (!parsed.classTimetable) parsed.classTimetable = [];
+        if (!parsed.examSchedules) parsed.examSchedules = [];
+        if (!parsed.announcements) parsed.announcements = [];
+        if (!parsed.auditLogs) parsed.auditLogs = [];
 
-        for (const u of (parsed.users || [])) {
-          if (u.role === 'student') {
-            let stdProfile = parsed.students.find(s => s.userId === u.id);
-            if (!stdProfile) {
-              const rollStr = String(nextSeq++);
-              stdProfile = {
-                id: `std_${u.id.replace('usr_', '')}`,
-                userId: u.id,
-                rollNumber: rollStr,
-                registrationNumber: rollStr,
-                departmentId: 'dept_cse',
-                departmentName: 'Computer Science & Engineering',
-                currentSemester: 6,
-                section: 'CSE-A',
-                admissionYear: 2023,
-                academicYear: '2026-2027',
-                batch: '2023-2027',
-                cgpa: 8.5,
-                currentSgpa: 8.5,
-                attendancePercentage: 85.0,
-                mentorFacultyId: 'usr_fac_01',
-                academicStatus: 'Good Standing'
-              };
-              parsed.students.push(stdProfile);
-            }
-
-            // Ensure enrollments exist for this student
-            const deptSubs = (parsed.subjects || []).filter(s => s.departmentId === stdProfile!.departmentId && s.semester === (stdProfile!.currentSemester || 6));
-            deptSubs.forEach(sub => {
-              const existingEnr = parsed.enrollments.find(e => e.studentId === stdProfile!.id && (e.subjectId === sub.id || e.subjectCode === sub.code));
-              if (!existingEnr) {
-                parsed.enrollments.push({
-                  id: `enr_${stdProfile!.id}_${sub.id}`,
-                  studentId: stdProfile!.id,
-                  subjectId: sub.id,
-                  subjectCode: sub.code,
-                  subjectName: sub.name,
-                  instructorName: sub.assignedFacultyName || 'Prof. Marcus Vance',
-                  credits: sub.credits || 3,
-                  attendedClasses: 12,
-                  totalClasses: 14,
-                  attendancePercentage: 85.7,
-                  semester: sub.semester,
-                  academicYear: '2026-2027',
-                  gradePoints: 8.5,
-                  status: 'Enrolled'
-                });
-              }
+        // Only default demo/pavan admin gets pavan user auto-seeded
+        if (isDefaultSeedAdmin(this.adminId)) {
+          const pavanUser = (parsed.users || []).find(u => u.email && u.email.toLowerCase() === 'pavan90303@gmail.com');
+          const pavanHash = bcrypt.hashSync('Pavan90303', 10);
+          if (pavanUser) {
+            pavanUser.role = 'admin';
+            pavanUser.status = 'active';
+            pavanUser.password = 'Pavan90303';
+            pavanUser.passwordHash = pavanHash;
+            if (!pavanUser.name) pavanUser.name = 'Pavankumar';
+          } else {
+            if (!parsed.users) parsed.users = [];
+            parsed.users.push({
+              id: 'usr_admin_1793903093175',
+              name: 'Pavankumar',
+              email: 'pavan90303@gmail.com',
+              password: 'Pavan90303',
+              passwordHash: pavanHash,
+              role: 'admin',
+              phone: '+91 98765 43210',
+              status: 'active',
+              createdAt: '2026-11-05T18:24:53.175Z'
             });
           }
-        }
-
-        for (const f of (parsed.faculty || [])) {
-          if (!f.assignedSections || f.assignedSections.length === 0) {
-            f.assignedSections = ['CSE-A', 'CSE-B'];
-          }
-          if (!f.assignedSubjectIds) {
-            f.assignedSubjectIds = ['sub_cs401', 'sub_cs402', 'sub_cs403', 'sub_cs404L'];
-          }
-        }
-
-        // Ensure institutional administrator Pavankumar account is configured with credentials
-        const pavanUser = (parsed.users || []).find(u => u.email && u.email.toLowerCase() === 'pavan90303@gmail.com');
-        const pavanHash = bcrypt.hashSync('Pavan90303', 10);
-        if (pavanUser) {
-          pavanUser.role = 'admin';
-          pavanUser.status = 'active';
-          pavanUser.password = 'Pavan90303';
-          pavanUser.passwordHash = pavanHash;
-          if (!pavanUser.name) pavanUser.name = 'Pavankumar';
-        } else {
-          if (!parsed.users) parsed.users = [];
-          parsed.users.push({
-            id: 'usr_admin_1793903093175',
-            name: 'Pavankumar',
-            email: 'pavan90303@gmail.com',
-            password: 'Pavan90303',
-            passwordHash: pavanHash,
-            role: 'admin',
-            phone: '+91 98765 43210',
-            status: 'active',
-            createdAt: '2026-11-05T18:24:53.175Z'
-          });
         }
 
         this.data = parsed;
@@ -998,6 +947,24 @@ class StorageEngine {
       fs.writeFileSync(this.dbFile, JSON.stringify(d, null, 2), 'utf-8');
     } catch (err) {
       console.error('[StorageEngine] Failed to write DB file:', err);
+    }
+  }
+
+  public async syncFromMongoWorkspace(): Promise<void> {
+    if (!isDbConnected() || !this.adminId || this.adminId === '__global__') return;
+    try {
+      const doc = await AdminWorkspaceModel.findOne({ adminId: this.adminId }).lean();
+      if (doc && doc.data) {
+        const mongoData = doc.data as StoredData;
+        if (mongoData && Array.isArray(mongoData.users) && mongoData.users.length > 0) {
+          this.data = mongoData;
+          this.recalculateAllAttendance();
+          this.saveDirect(this.data);
+          console.log(`[TenantStorage] Successfully restored workspace from MongoDB for ${this.adminId}`);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[TenantStorage] MongoDB sync note for ${this.adminId}:`, err?.message || err);
     }
   }
 
@@ -1538,7 +1505,9 @@ class TenantStorageManager {
     const key = makeTenantKey(adminId);
     if (!this.engines.has(key)) {
       console.log(`[TenantStorage] Creating workspace for admin: ${adminId} (key: ${key})`);
-      this.engines.set(key, new StorageEngine(adminId));
+      const engine = new StorageEngine(adminId);
+      this.engines.set(key, engine);
+      engine.syncFromMongoWorkspace().catch(() => {});
     }
     return this.engines.get(key)!;
   }

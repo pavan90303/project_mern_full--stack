@@ -90,7 +90,22 @@ const KEYS = {
 function loadStorage<T>(key: string, fallback: T): T {
   try {
     const item = localStorage.getItem(key);
-    return item ? JSON.parse(item) : fallback;
+    if (item !== null && item !== undefined) {
+      return JSON.parse(item);
+    }
+    const currentEmail = (localStorage.getItem('edutrack_last_user_email') || '').toLowerCase().trim();
+    const isSeedAdmin = currentEmail === 'pavan90303@gmail.com' || currentEmail === 'admin@edutrack.edu';
+
+    // If an authenticated user/tenant is logged in (not demo/seed admin), do not return mock demo entities
+    if (currentEmail && !isSeedAdmin) {
+      if (key === KEYS.DEPARTMENTS && Array.isArray(fallback)) {
+        return fallback;
+      }
+      if (Array.isArray(fallback)) {
+        return [] as unknown as T;
+      }
+    }
+    return fallback;
   } catch {
     return fallback;
   }
@@ -307,14 +322,24 @@ export class EduTrackApi {
 
   // --- AUTH & USERS ---
   static getUsers(): User[] {
-    return loadStorage<User[]>(KEYS.USERS, INITIAL_USERS);
+    const currentEmail = (localStorage.getItem('edutrack_last_user_email') || '').toLowerCase().trim();
+    const isSeedAdmin = currentEmail === 'pavan90303@gmail.com' || currentEmail === 'admin@edutrack.edu';
+    if (!currentEmail || isSeedAdmin) {
+      return loadStorage<User[]>(KEYS.USERS, INITIAL_USERS);
+    }
+    const stored = loadStorage<User[]>(KEYS.USERS, []);
+    if (stored && stored.length > 0) return stored;
+    const active = this.getActiveUser();
+    return active ? [active] : [];
   }
 
   static getActiveUser(): User | null {
-    const users = this.getUsers();
     const activeId = localStorage.getItem(KEYS.CURRENT_USER_ID);
     if (!activeId) return null;
-    return users.find(u => u.id === activeId) || null;
+    const currentEmail = (localStorage.getItem('edutrack_last_user_email') || '').toLowerCase().trim();
+    const isSeedAdmin = !currentEmail || currentEmail === 'pavan90303@gmail.com' || currentEmail === 'admin@edutrack.edu';
+    const users = isSeedAdmin ? loadStorage<User[]>(KEYS.USERS, INITIAL_USERS) : loadStorage<User[]>(KEYS.USERS, []);
+    return users.find(u => u.id === activeId || u.email.toLowerCase() === currentEmail) || null;
   }
 
   static async loginAsync(identifier: string, password?: string, expectedRole?: UserRole): Promise<{ success: boolean; user?: User; error?: string }> {
@@ -344,7 +369,7 @@ export class EduTrackApi {
         
         // Refresh client store from server for this user
         this.isInitialized = false;
-        this.init().catch(() => {});
+        await this.init();
 
         // Cache user in storage if not present
         const users = this.getUsers();
@@ -423,7 +448,7 @@ export class EduTrackApi {
           localStorage.setItem(KEYS.CURRENT_USER_ID, data.user.id);
 
           this.isInitialized = false;
-          this.init().catch(() => {});
+          await this.init();
 
           const users = this.getUsers();
           const existingIdx = users.findIndex(u => u.id === data.user.id || u.email.toLowerCase() === data.user.email.toLowerCase());
@@ -450,6 +475,14 @@ export class EduTrackApi {
       const displayName = fallbackName || (cleanEmail.split('@')[0] ? cleanEmail.split('@')[0].charAt(0).toUpperCase() + cleanEmail.split('@')[0].slice(1) : 'Institutional User');
 
       if (role === 'admin') {
+        const lastEmail = (localStorage.getItem('edutrack_last_user_email') || '').toLowerCase();
+        if (lastEmail !== cleanEmail) {
+          Object.values(KEYS).forEach(k => {
+            if (k !== KEYS.CURRENT_USER_ID) localStorage.removeItem(k);
+          });
+          localStorage.setItem('edutrack_last_user_email', cleanEmail);
+        }
+
         if (!user) {
           user = {
             id: `usr_admin_${Date.now()}`,
